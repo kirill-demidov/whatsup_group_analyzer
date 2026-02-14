@@ -41,6 +41,20 @@ mkdir -p /opt/playground
 
 Скрипт копирует проект через rsync (без `.env`, без `credentials.json`, без `.venv` и `node_modules`). Папку `bridge-baileys/auth_baileys` на сервере не трогает.
 
+**Вариант A2: CI/CD (GitHub Actions)**
+
+При пуше в ветку `main` проект автоматически деплоится на сервер и перезапускается (workflow `.github/workflows/deploy.yml`).
+
+**Секреты репозитория** (Settings → Secrets and variables → Actions):
+
+| Секрет | Обязательный | Описание |
+|--------|--------------|----------|
+| `SSH_PRIVATE_KEY` | Да | Приватный SSH-ключ для доступа на сервер (содержимое `~/.ssh/do_key` или аналог). |
+| `DEPLOY_HOST` | Нет | Хост сервера (например `159.223.0.234`). По умолчанию: `159.223.0.234`. |
+| `DEPLOY_REMOTE_DIR` | Нет | Каталог на сервере. По умолчанию: `/opt/playground`. |
+
+После добавления секретов каждый `git push origin main` запускает деплой: rsync → `uv sync` → `npm install` в bridge-baileys → `./scripts/restart_server.sh`.
+
 **Вариант B: всё делать на сервере (если деплой с машины недоступен)**
 
 Подключись по SSH и выполни (если репозиторий в Git — подставь URL репо; иначе залей архив и распакуй в `/opt/playground`):

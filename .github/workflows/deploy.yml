@@ -1,0 +1,57 @@
+# Деплой на сервер при пуше в main: rsync + перезапуск приложения
+name: Deploy to server
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${DEPLOY_HOST:-159.223.0.234}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Rsync to server
+        env:
+          RSYNC_RSH: "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no"
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_REMOTE_DIR: ${{ secrets.DEPLOY_REMOTE_DIR }}
+        run: |
+          SERVER="root@${DEPLOY_HOST:-159.223.0.234}"
+          REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/opt/playground}"
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='.venv' \
+            --exclude='.env' \
+            --exclude='.env.local' \
+            --exclude='.env.*.local' \
+            --exclude='credentials.json' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='bridge-baileys/node_modules' \
+            --exclude='bridge-baileys/auth_baileys' \
+            --exclude='logs' \
+            --exclude='data/users.json' \
+            . "${SERVER}:${REMOTE_DIR}/"
+          echo "→ Файлы скопированы."
+
+      - name: Install deps and restart on server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_REMOTE_DIR: ${{ secrets.DEPLOY_REMOTE_DIR }}
+        run: |
+          SERVER="root@${DEPLOY_HOST:-159.223.0.234}"
+          REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/opt/playground}"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "${SERVER}" \
+            "cd ${REMOTE_DIR} && export PATH=/root/.local/bin:\$PATH && uv sync && cd bridge-baileys && npm install && cd .. && ./scripts/restart_server.sh"
+          echo "→ Деплой и перезапуск завершены."
