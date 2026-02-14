@@ -669,7 +669,7 @@
         const r = await fetch(API + "/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chatIds, prompt, syncFirst, messageLimit }),
+          body: JSON.stringify({ chatIds, prompt, syncFirst, messageLimit, lang: currentLang }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {

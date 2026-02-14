@@ -216,6 +216,9 @@ def estimate_message_limit(user_prompt: str) -> int:
 ANALYZE_CONTEXT_MAX_CHARS = 200_000
 
 
+_LANG_NAMES = {"ru": "Russian", "en": "English", "he": "Hebrew"}
+
+
 def analyze_with_prompt(
     user_prompt: str,
     context_text: str,
@@ -223,6 +226,7 @@ def analyze_with_prompt(
     total_messages: int | None = None,
     first_date: str | None = None,
     last_date: str | None = None,
+    lang: str = "",
 ) -> tuple[str, dict[str, Any]]:
     """
     Анализ произвольного текста по промпту пользователя (для веб-приложения).
@@ -254,7 +258,7 @@ def analyze_with_prompt(
 ---
 {text}
 ---
-Ответ (на том же языке, что и промпт):"""
+Ответ (на {_LANG_NAMES.get(lang, '') or 'том же языке, что и промпт'}):"""
     try:
         response = model.generate_content(prompt)
         result_text = (response.text or "").strip()

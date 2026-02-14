@@ -364,6 +364,7 @@ class AnalyzePayload(BaseModel):
     prompt: str = ""
     syncFirst: bool = False  # перед загрузкой запросить синхронизацию истории с телефоном
     messageLimit: int = 0  # 0 = авто (Gemini определит по промпту)
+    lang: str = ""  # язык ответа: ru/en/he (пустой = язык промпта)
 
 
 @app.post("/api/analyze")
@@ -459,6 +460,7 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
             total_messages=total_messages,
             first_date=first_date,
             last_date=last_date,
+            lang=payload.lang,
         )
         return {"result": result, "usage": usage}
     except Exception as e:
