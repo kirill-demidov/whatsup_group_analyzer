@@ -723,7 +723,7 @@ webApp.post("/api/session/start", async (req, res) => {
   }
 });
 
-webApp.listen(WEB_PORT, "127.0.0.1", () => {
+webApp.listen(WEB_PORT, "0.0.0.0", () => {
   console.log(`Веб-API моста (Baileys multi-tenant): http://localhost:${WEB_PORT}`);
 });
 
