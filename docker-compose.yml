@@ -1,0 +1,38 @@
+services:
+  bridge:
+    build:
+      context: .
+      target: bridge
+    ports:
+      - "3080:3080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - BACKEND_URL=http://backend:8080
+    volumes:
+      - bridge-auth:/app/auth_baileys
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      target: backend
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - BRIDGE_URL=http://bridge:3080
+    volumes:
+      - app-data:/app/data
+      - app-logs:/app/logs
+    depends_on:
+      - bridge
+    restart: unless-stopped
+
+volumes:
+  bridge-auth:
+  app-data:
+  app-logs:

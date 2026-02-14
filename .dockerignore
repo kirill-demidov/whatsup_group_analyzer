@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+node_modules
+bridge-baileys/node_modules
+bridge-baileys/auth_baileys
+auth_baileys
+logs
+data
+.env
+.env.local
+.env.*.local
+credentials.json
