@@ -51,9 +51,13 @@ else:
     wa = None
 
 
-def _bridge_fetch(path: str, method: str = "GET", data: dict | None = None, timeout: int = 15) -> tuple[int, dict]:
+def _bridge_fetch(path: str, method: str = "GET", data: dict | None = None, timeout: int = 15, username: str | None = None) -> tuple[int, dict]:
     """Запрос к мосту. Возвращает (status_code, json_body). timeout — секунды (для загрузки истории нужен большой, например 120)."""
     url = (config.BRIDGE_URL or "").rstrip("/") + path
+    # Multi-tenant: добавляем ?user=<username>
+    if username:
+        sep = "&" if "?" in url else "?"
+        url += f"{sep}user={quote(username, safe='')}"
     body = json.dumps(data).encode() if method == "POST" and data is not None else None
     req = urllib.request.Request(url, data=body, method=method)
     if body is not None:
@@ -151,11 +155,11 @@ async def api_login(response: Response, request: fastapi.Request):
     if not verify_user(username, password):
         logger.warning("Login: invalid credentials for user %s", username)
         raise fastapi.HTTPException(401, "Неверный логин или пароль")
-    # Сбросить сессию WhatsApp в мосте — при загрузке /app/ появится свежий QR для сканирования
+    # Multi-tenant: запустить сессию моста для этого пользователя (если ещё не запущена)
     try:
-        _bridge_fetch("/api/logout", method="POST", timeout=10)
+        _bridge_fetch("/api/session/start", method="POST", timeout=10, username=username)
     except Exception as e:
-        logger.debug("Bridge logout on login (refresh QR): %s", e)
+        logger.debug("Bridge session start on login: %s", e)
     return login_response(username, response)
 
 
@@ -224,6 +228,11 @@ def api_auth_google_callback(request: fastapi.Request, code: str = "", state: st
         raise fastapi.HTTPException(400, "Google account has no email")
     name = userinfo.get("name") or email
     logger.info("Google OAuth login: %s (%s)", email, name)
+    # Multi-tenant: запустить сессию моста для этого пользователя
+    try:
+        _bridge_fetch("/api/session/start", method="POST", timeout=10, username=email)
+    except Exception as e:
+        logger.debug("Bridge session start on Google login: %s", e)
     return login_google_response(email, name, None)
 
 
@@ -237,7 +246,7 @@ def _current_user(request: fastapi.Request) -> CurrentUser:
 # API моста (прокси). При AUTH_ENABLED возвращаем только чаты пользователя.
 @app.get("/api/bridge/status")
 def bridge_status(request: fastapi.Request, user: CurrentUser = fastapi.Depends(_current_user)):
-    status, body = _bridge_fetch("/api/status")
+    status, body = _bridge_fetch("/api/status", username=user.username)
     if status != 200:
         raise fastapi.HTTPException(status, body.get("error", "Bridge unavailable"))
     return body
@@ -246,7 +255,10 @@ def bridge_status(request: fastapi.Request, user: CurrentUser = fastapi.Depends(
 @app.get("/api/bridge/qr-image")
 def bridge_qr_image(request: fastapi.Request, user: CurrentUser = fastapi.Depends(_current_user)):
     """QR как картинка с моста. 204 если QR нет."""
-    url = (config.BRIDGE_URL or "").rstrip("/") + "/api/qr-image"
+    qr_path = "/api/qr-image"
+    if user.username:
+        qr_path += f"?user={quote(user.username, safe='')}"
+    url = (config.BRIDGE_URL or "").rstrip("/") + qr_path
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=5) as r:
@@ -265,7 +277,7 @@ def bridge_qr_image(request: fastapi.Request, user: CurrentUser = fastapi.Depend
 @app.get("/api/bridge/logs")
 def bridge_logs(request: fastapi.Request, user: CurrentUser = fastapi.Depends(_current_user), tail: int = 200):
     """Последние строки логов моста (для отдельной вкладки UI)."""
-    status, body = _bridge_fetch(f"/api/logs?tail={min(max(1, tail), 500)}", timeout=5)
+    status, body = _bridge_fetch(f"/api/logs?tail={min(max(1, tail), 500)}", timeout=5, username=user.username)
     if status != 200:
         return {"lines": [f"[Ошибка моста: {body.get('error', status)}]"]}
     return body
@@ -274,7 +286,7 @@ def bridge_logs(request: fastapi.Request, user: CurrentUser = fastapi.Depends(_c
 @app.get("/api/bridge/history-stats")
 def bridge_history_stats(request: fastapi.Request, user: CurrentUser = fastapi.Depends(_current_user)):
     """Статистика загрузки истории моста: чатов, сообщений по чатам. Для проверки, что история пришла."""
-    status, body = _bridge_fetch("/api/history-stats")
+    status, body = _bridge_fetch("/api/history-stats", username=user.username)
     if status != 200:
         raise fastapi.HTTPException(status or 503, body.get("error", "Bridge unavailable"))
     return body
@@ -288,7 +300,7 @@ def bridge_chats(
     search: str | None = None,
 ):
     """Список чатов из моста. При AUTH_ENABLED — только чаты, доступные пользователю."""
-    status, body = _bridge_fetch("/api/chats")
+    status, body = _bridge_fetch("/api/chats", username=user.username)
     if status != 200:
         raise fastapi.HTTPException(status, body.get("error", "Bridge unavailable"))
     chats = body.get("chats") or []
@@ -316,7 +328,7 @@ def bridge_chat_messages(
     path = f"/api/chat/{quote(chat_id, safe='')}/messages?limit={limit}"
     if sync:
         path += "&sync=1"
-    status, body = _bridge_fetch(path, timeout=timeout)
+    status, body = _bridge_fetch(path, timeout=timeout, username=user.username)
     if status != 200:
         raise fastapi.HTTPException(status, body.get("error", "Bridge unavailable"))
     return body
@@ -331,7 +343,7 @@ def bridge_chat_sync(
     if auth_enabled() and not user.can_access_chat(chat_id):
         raise fastapi.HTTPException(403, "Access denied to this chat")
     status, body = _bridge_fetch(
-        f"/api/chat/{quote(chat_id, safe='')}/sync", method="POST", timeout=30
+        f"/api/chat/{quote(chat_id, safe='')}/sync", method="POST", timeout=30, username=user.username
     )
     if status not in (200, 201):
         raise fastapi.HTTPException(status, body.get("error", "Bridge unavailable"))
@@ -341,7 +353,7 @@ def bridge_chat_sync(
 @app.post("/api/bridge/logout")
 def bridge_logout(request: fastapi.Request, user: CurrentUser = fastapi.Depends(_current_user)):
     """Отключить текущий аккаунт WhatsApp в мосте; после этого мост покажет новый QR для другого аккаунта."""
-    status, body = _bridge_fetch("/api/logout", method="POST")
+    status, body = _bridge_fetch("/api/logout", method="POST", username=user.username)
     if status not in (200, 201):
         raise fastapi.HTTPException(status, body.get("error", "Bridge logout failed"))
     return body
@@ -380,6 +392,7 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
             status, body = _bridge_fetch(
                 f"/api/chat/{quote(cid, safe='')}/messages?limit=15000{sync_suffix}",
                 timeout=timeout,
+                username=user.username,
             )
             if status != 200 or "messages" not in body:
                 logger.warning("Не удалось загрузить чат %s: %s", cid[:30], body.get("error"))
