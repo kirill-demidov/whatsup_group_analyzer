@@ -11,7 +11,7 @@ services:
     environment:
       - BACKEND_URL=http://backend:8080
     volumes:
-      - bridge-auth:/app/auth_baileys
+      - ./bridge-baileys/auth_baileys:/app/auth_baileys
     restart: unless-stopped
 
   backend:
@@ -26,13 +26,8 @@ services:
     environment:
       - BRIDGE_URL=http://bridge:3080
     volumes:
-      - app-data:/app/data
-      - app-logs:/app/logs
+      - ./data:/app/data
+      - ./logs:/app/logs
     depends_on:
       - bridge
     restart: unless-stopped
-
-volumes:
-  bridge-auth:
-  app-data:
-  app-logs:
