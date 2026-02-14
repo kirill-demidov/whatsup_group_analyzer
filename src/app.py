@@ -363,6 +363,7 @@ class AnalyzePayload(BaseModel):
     chatIds: list[str] = []
     prompt: str = ""
     syncFirst: bool = False  # перед загрузкой запросить синхронизацию истории с телефоном
+    messageLimit: int = 0  # 0 = авто (Gemini определит по промпту)
 
 
 @app.post("/api/analyze")
@@ -378,8 +379,17 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
                 raise fastapi.HTTPException(403, f"Access denied to chat {cid[:20]}…")
 
     from datetime import datetime
-    from src.gemini_client import analyze_with_prompt
+    from src.gemini_client import analyze_with_prompt, estimate_message_limit
     from src.gcs_client import load_chat_messages
+
+    # Определяем эффективный лимит сообщений
+    if payload.messageLimit > 0:
+        effective_limit = min(payload.messageLimit, 15000)
+    else:
+        effective_limit = estimate_message_limit(payload.prompt.strip())
+    logger.info("Лимит сообщений: %s (запрошено: %s)", effective_limit, payload.messageLimit)
+    # Запрашиваем у моста с запасом (x2), но не больше 15000
+    fetch_limit = min(effective_limit * 2, 15000)
 
     parts = []
     all_timestamps: list[float] = []
@@ -390,7 +400,7 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
         messages = load_chat_messages(cid) if config.GCS_BUCKET else None
         if not messages:
             status, body = _bridge_fetch(
-                f"/api/chat/{quote(cid, safe='')}/messages?limit=15000{sync_suffix}",
+                f"/api/chat/{quote(cid, safe='')}/messages?limit={fetch_limit}{sync_suffix}",
                 timeout=timeout,
                 username=user.username,
             )
@@ -401,6 +411,9 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
             messages = body.get("messages", [])
         else:
             logger.info("Чат %s: загружено %s сообщений из GCS", cid[:24], len(messages))
+        # Обрезаем до effective_limit последних сообщений
+        if len(messages) > effective_limit:
+            messages = messages[:effective_limit]
         parts.append(f"\n=== Чат id: {cid} ===\n")
         for m in reversed(messages):  # хронологический порядок
             ts = m.get("timestamp")

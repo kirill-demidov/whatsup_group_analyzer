@@ -193,6 +193,25 @@ def _usage_from_response(response: Any) -> dict[str, Any]:
     }
 
 
+def estimate_message_limit(user_prompt: str) -> int:
+    """По промпту определяет сколько сообщений нужно. ~50 input-токенов к Gemini Flash."""
+    if not config.GEMINI_API_KEY:
+        return 200
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    prompt = (
+        f'How many recent chat messages are needed to answer: "{user_prompt}"\n'
+        "Reply with ONLY a number. Guidelines: last message→5, today→100, "
+        "summary→200, search→500, full/all→15000\nNumber:"
+    )
+    try:
+        response = model.generate_content(prompt)
+        n = int(re.sub(r"[^\d]", "", response.text.strip()) or "200")
+        return max(5, min(n, 15000))
+    except Exception as e:
+        logger.warning("estimate_message_limit fallback: %s", e)
+        return 200
+
+
 # Максимум символов контекста для анализа (Gemini 2.0 Flash — до 1M токенов, ~200k символов ок)
 ANALYZE_CONTEXT_MAX_CHARS = 200_000
 

@@ -190,6 +190,11 @@
       <span id="syncFirstLabel">Перед загрузкой запросить синхронизацию с телефоном (больше истории)</span>
     </label>
     <p style="color: var(--muted); font-size: 0.75rem; margin: 0 0 0.5rem;">Если в чате только новые сообщения без старой истории — включи эту опцию и нажми «Анализировать»: с телефона запросится ещё порция сообщений (до ~100 за раз). Повтори для большей глубины.</p>
+    <label class="msg-limit-wrap" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem; font-size:0.875rem;">
+      <span id="msgLimitLabel" data-i18n="msgLimitLabel">Последние</span>
+      <input type="number" id="messageLimit" value="0" min="0" max="15000" style="width:5.5rem; padding:0.35rem 0.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:0.875rem;" />
+      <span id="msgLimitSuffix" data-i18n="msgLimitSuffix">сообщений (0 = авто)</span>
+    </label>
     <textarea id="prompt" data-i18n-ph="promptPlaceholder"></textarea>
     <button type="button" id="analyzeBtn" style="margin-top:0.75rem" disabled data-i18n="analyzeBtn">Анализировать</button>
     <div id="resultWrap" style="display:none; margin-top:1rem">
@@ -313,6 +318,7 @@
         promptPlaceholder: "Например: Выпиши все упоминания учителей и их контакты из этих чатов",
         analyzeBtn: "Анализировать", resultLabel: "Результат:", emptyResult: "(пусто)",
         syncFirstLabel: "Перед загрузкой запросить синхронизацию с телефоном (больше истории)",
+        msgLimitLabel: "Последние", msgLimitSuffix: "сообщений (0 = авто)",
         bridgeNotConnected: "Мост не подключён", loading: "Загрузка…", errorLoadChats: "Ошибка загрузки чатов",
         logoutConfirm: "Отключить текущий аккаунт WhatsApp? После этого нужно будет отсканировать QR для другого аккаунта.",
         logoutError: "Ошибка отключения", statusAfterLogout: "Ожидание QR (подключи другой аккаунт)",
@@ -341,6 +347,7 @@
         promptPlaceholder: "E.g.: List all teacher mentions and their contacts from these chats",
         analyzeBtn: "Analyze", resultLabel: "Result:", emptyResult: "(empty)",
         syncFirstLabel: "Request history sync from phone before loading (more messages)",
+        msgLimitLabel: "Last", msgLimitSuffix: "messages (0 = auto)",
         bridgeNotConnected: "Bridge not connected", loading: "Loading…", errorLoadChats: "Error loading chats",
         logoutConfirm: "Disconnect current WhatsApp account? You will need to scan QR for another account.",
         logoutError: "Disconnect error", statusAfterLogout: "Waiting for QR (connect another account)",
@@ -369,6 +376,7 @@
         promptPlaceholder: "למשל: רשום את כל אזכורי המורים והפרטים שלהם מצ'אטים אלה",
         analyzeBtn: "נתח", resultLabel: "תוצאה:", emptyResult: "(ריק)",
         syncFirstLabel: "לבקש סנכרון היסטוריה מהטלפון לפני הטעינה (יותר הודעות)",
+        msgLimitLabel: "אחרונות", msgLimitSuffix: "הודעות (0 = אוטומטי)",
         bridgeNotConnected: "הגשר לא מחובר", loading: "טוען…", errorLoadChats: "שגיאה בטעינת צ'אטים",
         logoutConfirm: "לנתק את חשבון ה-WhatsApp הנוכחי? תצטרך לסרוק QR לחשבון אחר.",
         logoutError: "שגיאת ניתוק", statusAfterLogout: "מחכה ל-QR (חבר חשבון אחר)",
@@ -657,10 +665,11 @@
       resultEl.textContent = t("sendingToGemini");
       try {
         const syncFirst = document.getElementById("syncFirst").checked;
+        const messageLimit = parseInt(document.getElementById("messageLimit").value, 10) || 0;
         const r = await fetch(API + "/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chatIds, prompt, syncFirst }),
+          body: JSON.stringify({ chatIds, prompt, syncFirst, messageLimit }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
