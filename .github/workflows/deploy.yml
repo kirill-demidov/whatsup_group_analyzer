@@ -53,5 +53,5 @@ jobs:
           SERVER="root@${DEPLOY_HOST:-159.223.0.234}"
           REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/opt/playground}"
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "${SERVER}" \
-            "cd ${REMOTE_DIR} && export PATH=/root/.local/bin:\$PATH && uv sync && cd bridge-baileys && npm install && cd .. && ./scripts/restart_server.sh"
+            "cd ${REMOTE_DIR} && export PATH=/root/.local/bin:/root/.local/share/fnm/aliases/default/bin:\$PATH && uv sync && cd bridge-baileys && npm install && cd .. && bash scripts/restart_server.sh"
           echo "→ Деплой и перезапуск завершены."
