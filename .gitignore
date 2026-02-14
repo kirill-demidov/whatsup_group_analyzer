@@ -1,0 +1,27 @@
+# Секреты и ключи
+.env
+.env.local
+.env.*.local
+*.env
+credentials.json
+data/users.json
+
+# Окружение и кэш
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Логи (если задан LOG_PATH)
+logs/
+
+# Мост WhatsApp (только bridge-baileys; bridge/ — старый, не использовать)
+bridge/
+bridge-baileys/auth_baileys/
+bridge-baileys/node_modules/
+
+# IDE
+.idea/
+.vscode/

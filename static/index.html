@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WhatsApp Teachers — мост и анализ</title>
+  <style>
+    :root, [data-theme="dark"] {
+      --bg: #0f0f12;
+      --card: #1a1a1f;
+      --border: #2d2d35;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #22c55e;
+      --accent-hover: #16a34a;
+    }
+    [data-theme="light"] {
+      --bg: #f4f4f5;
+      --card: #fff;
+      --border: #e4e4e7;
+      --text: #18181b;
+      --muted: #71717a;
+      --accent: #16a34a;
+      --accent-hover: #15803d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1.5rem;
+      line-height: 1.5;
+    }
+    h1 { font-size: 1.5rem; margin: 0 0 1.5rem; font-weight: 600; }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+    section h2 { font-size: 1rem; margin: 0 0 0.75rem; color: var(--muted); font-weight: 500; }
+    .status { display: inline-flex; align-items: center; gap: 0.5rem; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .status-dot.connected { background: var(--accent); }
+    .qr-wrap { margin-top: 0.75rem; }
+    .qr-wrap img { max-width: 220px; border-radius: 8px; }
+    button, .btn {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    button:hover, .btn:hover { background: var(--accent-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .chats-list { max-height: 280px; overflow-y: auto; }
+    .chat-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+    .chat-item:last-child { border-bottom: none; }
+    .chat-item input[type="checkbox"] { accent-color: var(--accent); }
+    .chat-item label { cursor: pointer; flex: 1; }
+    .chat-item small { color: var(--muted); font-size: 0.75rem; }
+    .chat-item .msg-count { color: var(--muted); font-size: 0.85em; font-weight: normal; }
+    .chat-section-title { font-size: 0.8rem; color: var(--accent); margin: 0.75rem 0 0.35rem; font-weight: 600; }
+    .chat-section-title:first-child { margin-top: 0; }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 0.75rem;
+      font-size: 0.875rem;
+      resize: vertical;
+    }
+    textarea::placeholder { color: var(--muted); }
+    .result-box {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: var(--bg);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      white-space: pre-wrap;
+      font-size: 0.875rem;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .error { color: #f87171; }
+    .loading { color: var(--muted); }
+    .header-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.5rem; }
+    .theme-toggle {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 0.35rem 0.75rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .theme-toggle:hover { color: var(--text); }
+    .usage-box {
+      margin-top: 0.75rem;
+      padding: 0.75rem 1rem;
+      background: var(--bg);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .usage-box strong { color: var(--text); }
+    .lang-switch { display: flex; gap: 0.25rem; }
+    .lang-switch button {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .lang-switch button:hover, .lang-switch button.active { color: var(--accent); border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="header-row">
+    <h1 style="margin:0" id="titleH1">WhatsApp Teachers — мост и анализ</h1>
+    <div style="display:flex; align-items:center; gap:0.75rem;">
+      <div class="lang-switch" id="langSwitch">
+        <button type="button" data-lang="ru">RU</button>
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="he">עב</button>
+      </div>
+      <button type="button" id="themeToggle" class="theme-toggle">☀️ Светлая</button>
+    </div>
+  </div>
+
+  <section id="connect">
+    <h2 data-i18n="connectTitle">Подключение моста</h2>
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText" data-i18n="statusCheck">Проверка…</span>
+    </div>
+    <div class="qr-wrap" id="qrWrap" style="display:none">
+      <p id="qrHint" style="margin:0 0 0.5rem; color: var(--muted); font-size: 0.875rem;">Отсканируй QR в WhatsApp: Настройки → Связанные устройства → Привязать устройство</p>
+      <img id="qrImg" alt="QR" />
+      <p id="qrWaitHint" style="display:none; margin:0.5rem 0 0; color: var(--muted); font-size: 0.875rem;"></p>
+    </div>
+    <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+      <button type="button" id="logoutBridgeBtn" style="background: var(--card); border: 1px solid var(--border); color: var(--muted);" data-i18n="logoutBtn">Отключить мост / другой аккаунт</button>
+      <a href="/app/logs.html" target="_blank" rel="noopener" style="color: var(--accent); font-size: 0.875rem; text-decoration: underline;" data-i18n="bridgeLogsLink">Логи моста (открыть в новой вкладке)</a>
+      <span style="color: var(--muted);"> · </span>
+      <a href="/app/qr.html" target="_blank" rel="noopener" style="color: var(--accent); font-size: 0.875rem; text-decoration: underline;">Только QR (если не появляется выше)</a>
+    </div>
+  </section>
+
+  <section id="chats">
+    <h2 data-i18n="chatsTitle">Чаты</h2>
+    <div class="chats-filters" style="margin-bottom: 0.75rem;">
+      <input type="text" id="chatSearch" data-i18n-ph="searchPlaceholder" class="search-input" style="width: 100%; max-width: 260px; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); margin-right: 0.5rem; margin-bottom: 0.5rem;" />
+      <button type="button" id="searchChatsBtn" disabled style="margin-right: 0.75rem; margin-bottom: 0.5rem;" data-i18n="searchBtn">Искать</button>
+      <span id="typeLabel" style="color: var(--muted); font-size: 0.875rem;">Тип:</span>
+      <select id="chatTypeFilter" style="margin-left: 0.35rem; padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text);">
+        <option value="" data-i18n="typeAll">Все</option>
+        <option value="group" selected data-i18n="typeGroups">Группы</option>
+        <option value="channel" data-i18n="typeChannels">Каналы</option>
+        <option value="direct" data-i18n="typeDirect">Личные</option>
+      </select>
+    </div>
+    <p id="chatsHint" class="loading" data-i18n="chatsHintConnect">Сначала подключи мост.</p>
+    <p id="chatsSortHint" class="sort-hint" style="display:none; color: var(--muted); font-size: 0.8rem; margin: 0.25rem 0;" data-i18n="chatsSortHint">Сортировка: по последней активности (сверху — недавние).</p>
+    <div class="chats-list" id="chatsList" style="display:none"></div>
+    <div id="chatsByType" style="display:none"></div>
+    <p id="chatsCountHint" class="count-hint" style="display:none; color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem;" data-i18n="chatsCountHint">Кол-во сообщений показывается при мосте Baileys (./run.sh).</p>
+    <p id="chatsAllEmptyHint" class="count-hint" style="display:none; color: var(--muted); font-size: 0.8rem; margin-top: 0.4rem; max-width: 420px;" data-i18n="chatsAllEmptyHint">Все чаты с 0 сообщений? Подожди 1–2 мин после подключения и нажми «Обновить список».</p>
+    <p class="count-hint" style="color: var(--muted); font-size: 0.75rem; margin-top: 0.5rem;">Проверить загрузку истории: <a href="/api/bridge/history-stats" target="_blank" rel="noopener" style="color: var(--accent);">статистика (JSON)</a> — смотри <code>totalMessages</code> и <code>byChat[].messageCount</code>. В <a href="/app/logs.html" target="_blank" rel="noopener" style="color: var(--accent);">логах моста</a> после подключения должна появиться строка «messaging-history.set». Если <code>totalMessages</code> так и остаётся 0 — WhatsApp часто не отдаёт историю связанным «десктопным» устройствам; новые сообщения будут появляться в реальном времени, старую историю можно подтянуть только по запросу (если в чате уже есть хотя бы одно сообщение).</p>
+    <button type="button" id="refreshChats" style="margin-top:0.5rem" disabled data-i18n="refreshChats">Обновить список</button>
+  </section>
+
+  <section id="analyze">
+    <h2 data-i18n="analyzeTitle">Анализ через Gemini</h2>
+    <p id="analyzeDesc" style="color: var(--muted); font-size: 0.875rem; margin: 0 0 0.5rem;">Выбери чаты выше и напиши промпт. Будет загружена история сообщений и отправлена в Gemini.</p>
+    <p id="analyzeChatsHint" style="font-size: 0.875rem; margin: 0 0 0.5rem; padding: 0.5rem; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); color: var(--muted); min-height: 2.5rem;"></p>
+    <label class="sync-first-wrap" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem; font-size:0.875rem;">
+      <input type="checkbox" id="syncFirst" style="accent-color: var(--accent);" />
+      <span id="syncFirstLabel">Перед загрузкой запросить синхронизацию с телефоном (больше истории)</span>
+    </label>
+    <p style="color: var(--muted); font-size: 0.75rem; margin: 0 0 0.5rem;">Если в чате только новые сообщения без старой истории — включи эту опцию и нажми «Анализировать»: с телефона запросится ещё порция сообщений (до ~100 за раз). Повтори для большей глубины.</p>
+    <textarea id="prompt" data-i18n-ph="promptPlaceholder"></textarea>
+    <button type="button" id="analyzeBtn" style="margin-top:0.75rem" disabled data-i18n="analyzeBtn">Анализировать</button>
+    <div id="resultWrap" style="display:none; margin-top:1rem">
+      <strong id="resultLabel" data-i18n="resultLabel">Результат:</strong>
+      <div class="result-box" id="result"></div>
+      <div class="usage-box" id="usageBox" style="display:none"></div>
+    </div>
+    <div id="sessionUsage" class="usage-box" style="margin-top:0.5rem; display:none"></div>
+    <div id="analyzeError" class="error" style="margin-top:0.5rem; display:none"></div>
+  </section>
+
+  <script>
+    const API = ""; // same origin
+
+    // При включённой авторизации редирект на логин при 401
+    (async function checkAuth() {
+      const r = await fetch(API + "/api/me", { credentials: "include" });
+      if (r.status === 401) {
+        window.location.href = "/app/login.html";
+        return;
+      }
+      try {
+        const me = await r.json();
+        if (me.username) {
+          window.currentUsername = me.username;
+          const h = document.querySelector(".header-row");
+          if (h) {
+            const out = document.createElement("span");
+            out.innerHTML = "<span style=\"color:var(--muted);margin-right:0.5rem;\">" + me.username + "</span> <a href=\"#\" id=\"logoutApp\" style=\"color:var(--accent);font-size:0.875rem;\">Выйти</a>";
+            out.querySelector("#logoutApp").onclick = async function(e) { e.preventDefault(); await fetch(API + "/api/logout", { method: "POST", credentials: "include" }); window.location.href = "/app/login.html"; };
+            h.appendChild(out);
+          }
+        }
+      } catch (_) {}
+    })();
+
+    const L = {
+      ru: {
+        title: "WhatsApp Teachers — мост и анализ",
+        themeLight: "☀️ Светлая", themeDark: "🌙 Тёмная",
+        connectTitle: "Подключение моста", statusCheck: "Проверка…", statusConnected: "Мост подключён",
+        statusWaitingQr: "Ожидание QR", statusBridgeUnavailable: "Мост недоступен (запусти bridge с WEB_PORT=3080)",
+        qrHint: "Отсканируй QR в WhatsApp: Настройки → Связанные устройства → Привязать устройство",
+        logoutBtn: "Отключить мост / другой аккаунт", bridgeLogsLink: "Логи моста (в новой вкладке)",
+        chatsTitle: "Чаты", searchPlaceholder: "Поиск по названию группы/чата", searchBtn: "Искать",
+        typeLabel: "Тип:", typeAll: "Все", typeGroups: "Группы", typeChannels: "Каналы", typeDirect: "Личные",
+        chatsHintConnect: "Сначала подключи мост.", refreshChats: "Обновить список", noChats: "Нет чатов", messagesCount: "сообщ.",
+        chatsSortHint: "Сортировка: по последней активности (сверху — недавние).",
+        chatsCountHint: "Кол-во сообщений показывается при мосте Baileys (./run.sh).",
+        chatsAllEmptyHint: "Все чаты с 0 сообщений? После подключения подожди 1–2 мин (History Sync с телефона), затем нажми «Обновить список». Или открой чат в WhatsApp на телефоне.",
+        analyzeChatsLabel: "Анализируемые чаты:",
+        noChatsSelected: "Чаты не выбраны. Выбери чаты выше.",
+        analyzeTitle: "Анализ через Gemini",
+        analyzeDesc: "Выбери чаты выше и напиши промпт. Будет загружена история сообщений и отправлена в Gemini.",
+        promptPlaceholder: "Например: Выпиши все упоминания учителей и их контакты из этих чатов",
+        analyzeBtn: "Анализировать", resultLabel: "Результат:", emptyResult: "(пусто)",
+        syncFirstLabel: "Перед загрузкой запросить синхронизацию с телефоном (больше истории)",
+        bridgeNotConnected: "Мост не подключён", loading: "Загрузка…", errorLoadChats: "Ошибка загрузки чатов",
+        logoutConfirm: "Отключить текущий аккаунт WhatsApp? После этого нужно будет отсканировать QR для другого аккаунта.",
+        logoutError: "Ошибка отключения", statusAfterLogout: "Ожидание QR (подключи другой аккаунт)",
+        reconnectHint: "Подключи мост заново.", errorNetwork: "Ошибка сети",
+        enterPrompt: "Введи промпт.", selectOneChat: "Выбери хотя бы один чат.", sendingToGemini: "Отправка в Gemini…",
+        usagePerRequest: "За запрос: ввод", usageOutput: "вывод", usageTotal: "всего", usageTokens: "токенов. Стоимость:",
+        usageFreeTier: "(в бесплатном тире)", usageSession: "За сессию: всего", usageCost: "оценка стоимости", usageTokensWord: "токенов",
+      },
+      en: {
+        title: "WhatsApp Teachers — bridge & analysis",
+        themeLight: "☀️ Light", themeDark: "🌙 Dark",
+        connectTitle: "Bridge connection", statusCheck: "Checking…", statusConnected: "Bridge connected",
+        statusWaitingQr: "Waiting for QR", statusBridgeUnavailable: "Bridge unavailable (run bridge with WEB_PORT=3080)",
+        qrHint: "Scan QR in WhatsApp: Settings → Linked devices → Link a device",
+        logoutBtn: "Disconnect bridge / other account", bridgeLogsLink: "Bridge logs (new tab)",
+        chatsTitle: "Chats", searchPlaceholder: "Search by group/chat name", searchBtn: "Search",
+        typeLabel: "Type:", typeAll: "All", typeGroups: "Groups", typeChannels: "Channels", typeDirect: "Direct",
+        chatsHintConnect: "Connect the bridge first.", refreshChats: "Refresh list", noChats: "No chats", messagesCount: "msgs",
+        chatsSortHint: "Sorted by last activity (most recent first).",
+        chatsCountHint: "Message count is shown when using Baileys bridge (./run.sh).",
+        chatsAllEmptyHint: "All chats show 0 messages? Wait 1–2 min after connecting (History Sync), then click «Refresh list». Or open the chat in WhatsApp on your phone.",
+        analyzeChatsLabel: "Chats to analyze:",
+        noChatsSelected: "No chats selected. Select chats above.",
+        analyzeTitle: "Analysis with Gemini",
+        analyzeDesc: "Select chats above and enter a prompt. Message history will be loaded and sent to Gemini.",
+        promptPlaceholder: "E.g.: List all teacher mentions and their contacts from these chats",
+        analyzeBtn: "Analyze", resultLabel: "Result:", emptyResult: "(empty)",
+        syncFirstLabel: "Request history sync from phone before loading (more messages)",
+        bridgeNotConnected: "Bridge not connected", loading: "Loading…", errorLoadChats: "Error loading chats",
+        logoutConfirm: "Disconnect current WhatsApp account? You will need to scan QR for another account.",
+        logoutError: "Disconnect error", statusAfterLogout: "Waiting for QR (connect another account)",
+        reconnectHint: "Reconnect the bridge.", errorNetwork: "Network error",
+        enterPrompt: "Enter a prompt.", selectOneChat: "Select at least one chat.", sendingToGemini: "Sending to Gemini…",
+        usagePerRequest: "This request: input", usageOutput: "output", usageTotal: "total", usageTokens: "tokens. Cost:",
+        usageFreeTier: "(free tier)", usageSession: "This session: total", usageCost: "estimated cost", usageTokensWord: "tokens",
+      },
+      he: {
+        title: "WhatsApp Teachers — גשר וניתוח",
+        themeLight: "☀️ בהיר", themeDark: "🌙 כהה",
+        connectTitle: "חיבור הגשר", statusCheck: "בודק…", statusConnected: "הגשר מחובר",
+        statusWaitingQr: "מחכה ל-QR", statusBridgeUnavailable: "הגשר לא זמין (הפעל bridge עם WEB_PORT=3080)",
+        qrHint: "סרוק QR ב-WhatsApp: הגדרות → מכשירים מקושרים → קישור מכשיר",
+        logoutBtn: "נתק גשר / חשבון אחר", bridgeLogsLink: "לוג גשר (בטאב חדש)",
+        chatsTitle: "צ'אטים", searchPlaceholder: "חיפוש לפי שם קבוצה/צ'אט", searchBtn: "חפש",
+        typeLabel: "סוג:", typeAll: "הכל", typeGroups: "קבוצות", typeChannels: "ערוצים", typeDirect: "ישיר",
+        chatsHintConnect: "חבר קודם את הגשר.", refreshChats: "רענן רשימה", noChats: "אין צ'אטים", messagesCount: "הודעות",
+        chatsSortHint: "מיון: לפי פעילות אחרונה (למעלה — עדכני).",
+        chatsCountHint: "כמות הודעות מוצגת עם גשר Baileys (./run.sh).",
+        chatsAllEmptyHint: "כל הצ'אטים עם 0 הודעות? חכה דקה–שתיים אחרי החיבור (סנכרון היסטוריה) ולחץ «רענן רשימה». או פתח את הצ'אט ב-WhatsApp בטלפון.",
+        analyzeChatsLabel: "צ'אטים לניתוח:",
+        noChatsSelected: "לא נבחרו צ'אטים. בחר צ'אטים למעלה.",
+        analyzeTitle: "ניתוח עם Gemini",
+        analyzeDesc: "בחר צ'אטים למעלה והזן פרומפט. היסטוריית ההודעות תיטען ותישלח ל-Gemini.",
+        promptPlaceholder: "למשל: רשום את כל אזכורי המורים והפרטים שלהם מצ'אטים אלה",
+        analyzeBtn: "נתח", resultLabel: "תוצאה:", emptyResult: "(ריק)",
+        syncFirstLabel: "לבקש סנכרון היסטוריה מהטלפון לפני הטעינה (יותר הודעות)",
+        bridgeNotConnected: "הגשר לא מחובר", loading: "טוען…", errorLoadChats: "שגיאה בטעינת צ'אטים",
+        logoutConfirm: "לנתק את חשבון ה-WhatsApp הנוכחי? תצטרך לסרוק QR לחשבון אחר.",
+        logoutError: "שגיאת ניתוק", statusAfterLogout: "מחכה ל-QR (חבר חשבון אחר)",
+        reconnectHint: "חבר מחדש את הגשר.", errorNetwork: "שגיאת רשת",
+        enterPrompt: "הזן פרומפט.", selectOneChat: "בחר לפחות צ'אט אחד.", sendingToGemini: "שולח ל-Gemini…",
+        usagePerRequest: "לבקשה: קלט", usageOutput: "פלט", usageTotal: "סה\"כ", usageTokens: "טוקנים. עלות:",
+        usageFreeTier: "(במסגרת החינמי)", usageSession: "במסגרת ההפעלה: סה\"כ", usageCost: "עלות משוערת", usageTokensWord: "טוקנים",
+      },
+    };
+    const LANG_KEY = "wa-teachers-lang";
+    let currentLang = localStorage.getItem(LANG_KEY) || "ru";
+    function t(k) { return (L[currentLang] && L[currentLang][k]) || L.ru[k] || k; }
+    function applyLang() {
+      document.documentElement.lang = currentLang === "he" ? "he" : currentLang === "en" ? "en" : "ru";
+      document.documentElement.dir = currentLang === "he" ? "rtl" : "ltr";
+      document.getElementById("titleH1").textContent = t("title");
+      document.querySelectorAll("[data-i18n]").forEach(function (el) {
+        var key = el.getAttribute("data-i18n");
+        if (key) el.textContent = t(key);
+      });
+      document.querySelectorAll("[data-i18n-ph]").forEach(function (el) {
+        var key = el.getAttribute("data-i18n-ph");
+        if (key) el.placeholder = t(key);
+      });
+      document.getElementById("qrHint").textContent = t("qrHint");
+      document.getElementById("analyzeDesc").textContent = t("analyzeDesc");
+      document.getElementById("syncFirstLabel").textContent = t("syncFirstLabel");
+      document.getElementById("typeLabel").textContent = t("typeLabel");
+      document.getElementById("chatTypeFilter").querySelectorAll("option").forEach(function (opt, i) {
+        var keys = ["typeAll", "typeGroups", "typeChannels", "typeDirect"];
+        if (keys[i]) opt.textContent = t(keys[i]);
+      });
+      document.getElementById("themeToggle").textContent = document.documentElement.getAttribute("data-theme") === "light" ? t("themeDark") : t("themeLight");
+      document.getElementById("themeToggle").title = (document.documentElement.getAttribute("data-theme") === "light" ? t("themeDark") : t("themeLight")) + " / " + (document.documentElement.getAttribute("data-theme") === "light" ? t("themeLight") : t("themeDark"));
+      document.querySelectorAll("#langSwitch button").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-lang") === currentLang);
+      });
+    }
+    (function initLang() {
+      document.querySelectorAll("#langSwitch button").forEach(function (b) {
+        b.onclick = function () {
+          currentLang = b.getAttribute("data-lang");
+          localStorage.setItem(LANG_KEY, currentLang);
+          applyLang();
+        };
+      });
+      applyLang();
+    })();
+
+    (function initTheme() {
+      const key = "wa-teachers-theme";
+      const theme = localStorage.getItem(key) || "dark";
+      document.documentElement.setAttribute("data-theme", theme);
+      const btn = document.getElementById("themeToggle");
+      btn.textContent = theme === "light" ? t("themeDark") : t("themeLight");
+      btn.onclick = function () {
+        const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", next);
+        localStorage.setItem(key, next);
+        btn.textContent = next === "light" ? t("themeDark") : t("themeLight");
+        btn.title = (next === "light" ? t("themeDark") : t("themeLight")) + " / " + (next === "light" ? t("themeLight") : t("themeDark"));
+      };
+    })();
+
+    let sessionUsage = { input: 0, output: 0, total: 0, costUsd: 0 };
+
+    async function getStatus() {
+      const r = await fetch(API + "/api/bridge/status");
+      if (!r.ok) return { connected: false, qr: null };
+      return r.json();
+    }
+
+    async function getChats() {
+      const typeFilter = document.getElementById("chatTypeFilter").value;
+      const search = document.getElementById("chatSearch").value.trim();
+      let url = API + "/api/bridge/chats?";
+      if (typeFilter) url += "type_filter=" + encodeURIComponent(typeFilter) + "&";
+      if (search) url += "search=" + encodeURIComponent(search) + "&";
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(r.status === 503 ? t("bridgeNotConnected") : (await r.json()).error || r.statusText);
+      return r.json();
+    }
+
+    let statusInterval;
+    function startStatusPolling() {
+      async function tick() {
+        try {
+          const s = await getStatus();
+          const dot = document.getElementById("statusDot");
+          const text = document.getElementById("statusText");
+          const qrWrap = document.getElementById("qrWrap");
+          const qrImg = document.getElementById("qrImg");
+          if (s.connected) {
+            dot.classList.add("connected");
+            text.textContent = t("statusConnected");
+            qrWrap.style.display = "none";
+            document.getElementById("refreshChats").disabled = false;
+            document.getElementById("searchChatsBtn").disabled = false;
+            document.getElementById("analyzeBtn").disabled = false;
+          } else {
+            dot.classList.remove("connected");
+            text.textContent = t("statusWaitingQr");
+            const qrImgEl = document.getElementById("qrImg");
+            const qrWaitHint = document.getElementById("qrWaitHint");
+            qrWrap.style.display = "block";
+            qrImgEl.style.display = "block";
+            qrImgEl.src = API + "/api/bridge/qr-image?t=" + Date.now();
+            qrImgEl.onerror = function() {
+              qrImgEl.style.display = "none";
+              if (qrWaitHint) {
+                qrWaitHint.style.display = "block";
+                qrWaitHint.textContent = document.documentElement.lang === "ru"
+                  ? "QR ещё не готов. Нажми «Отключить мост» ниже, подожди 5–10 сек и обнови (F5)."
+                  : "QR not ready. Click «Logout» below, wait 5–10 sec and refresh (F5).";
+              }
+            };
+            qrImgEl.onload = function() {
+              if (qrWaitHint) qrWaitHint.style.display = "none";
+            };
+          }
+        } catch (_) {
+          document.getElementById("statusText").textContent = t("statusBridgeUnavailable");
+          document.getElementById("qrWrap").style.display = "none";
+        }
+      }
+      tick();
+      statusInterval = setInterval(tick, 3000);
+    }
+
+    function typeLabels() { return { group: t("typeGroups"), channel: t("typeChannels"), direct: t("typeDirect") }; }
+
+    function renderChats(data) {
+      const chats = data.chats || [];
+      const typeFilter = document.getElementById("chatTypeFilter").value;
+      const list = document.getElementById("chatsList");
+      const byType = document.getElementById("chatsByType");
+      const sortHint = document.getElementById("chatsSortHint");
+      const countHint = document.getElementById("chatsCountHint");
+      list.style.display = "none";
+      byType.style.display = "none";
+      sortHint.style.display = chats.length ? "block" : "none";
+      const hasAnyCount = chats.some((c) => c.messageCount !== undefined && c.messageCount !== null);
+      const allZero = chats.length && chats.every((c) => (c.messageCount ?? 0) === 0);
+      countHint.style.display = chats.length && !hasAnyCount ? "block" : "none";
+      const emptyHint = document.getElementById("chatsAllEmptyHint");
+      if (emptyHint) {
+        emptyHint.style.display = allZero ? "block" : "none";
+        emptyHint.textContent = t("chatsAllEmptyHint");
+      }
+
+      if (typeFilter) {
+        list.style.display = "block";
+        list.innerHTML = chats.map((c, i) => `
+          <div class="chat-item">
+            <input type="checkbox" id="chat-${i}" data-id="${escapeAttr(c.id)}" data-name="${escapeAttr(c.name || c.id)}" />
+            <label for="chat-${i}">${escapeHtml(c.name)}${c.messageCount !== undefined ? " <span class=\"msg-count\">(" + c.messageCount + " " + t("messagesCount") + ")</span>" : ""}</label>
+            <small>${escapeHtml(c.id)}</small>
+          </div>
+        `).join("");
+      } else {
+        byType.style.display = "block";
+        const groups = { group: [], channel: [], direct: [] };
+        chats.forEach((c) => {
+          const t = c.type || (c.isGroup ? "group" : "direct");
+          if (groups[t]) groups[t].push(c);
+        });
+        let idx = 0;
+        let html = "";
+        ["group", "channel", "direct"].forEach((t) => {
+          if (groups[t].length === 0) return;
+          html += "<div class=\"chat-section-title\">" + typeLabels()[t] + "</div>";
+          html += groups[t].map((c) => {
+            const i = idx++;
+            return `<div class="chat-item">
+              <input type="checkbox" id="chat-${i}" data-id="${escapeAttr(c.id)}" data-name="${escapeAttr(c.name || c.id)}" />
+              <label for="chat-${i}">${escapeHtml(c.name)}${c.messageCount !== undefined ? " <span class=\"msg-count\">(" + c.messageCount + " " + t("messagesCount") + ")</span>" : ""}</label>
+              <small>${escapeHtml(c.id)}</small>
+            </div>`;
+          }).join("");
+        });
+        byType.innerHTML = html || "<p class=\"loading\">" + t("noChats") + "</p>";
+      }
+      updateAnalyzeChatsHint();
+    }
+
+    function updateAnalyzeChatsHint() {
+      const checkboxes = document.querySelectorAll("#chatsList input[type=checkbox]:checked, #chatsByType input[type=checkbox]:checked");
+      const names = Array.from(checkboxes).map((el) => (el.dataset.name || el.dataset.id || "").trim()).filter(Boolean);
+      const hint = document.getElementById("analyzeChatsHint");
+      if (names.length === 0) {
+        hint.textContent = t("noChatsSelected");
+        hint.style.color = "var(--muted)";
+      } else {
+        hint.innerHTML = "<strong>" + t("analyzeChatsLabel") + "</strong> " + names.map((n) => escapeHtml(n)).join(", ");
+        hint.style.color = "var(--text)";
+      }
+    }
+
+    async function doLoadChats() {
+      const list = document.getElementById("chatsList");
+      const byType = document.getElementById("chatsByType");
+      const hint = document.getElementById("chatsHint");
+      hint.textContent = t("loading");
+      hint.style.display = "block";
+      hint.classList.remove("error");
+      try {
+        const data = await getChats();
+        hint.style.display = "none";
+        renderChats(data);
+      } catch (e) {
+        hint.style.display = "block";
+        hint.textContent = e.message || t("errorLoadChats");
+        hint.classList.add("error");
+        list.style.display = "none";
+        byType.style.display = "none";
+      }
+    }
+
+    document.getElementById("searchChatsBtn").onclick = doLoadChats;
+    document.getElementById("refreshChats").onclick = doLoadChats;
+    document.getElementById("chatTypeFilter").onchange = doLoadChats;
+    document.getElementById("chatsList").addEventListener("change", updateAnalyzeChatsHint);
+    document.getElementById("chatsByType").addEventListener("change", updateAnalyzeChatsHint);
+    updateAnalyzeChatsHint();
+
+    document.getElementById("logoutBridgeBtn").onclick = async function () {
+      const btn = document.getElementById("logoutBridgeBtn");
+      if (!confirm(t("logoutConfirm"))) return;
+      btn.disabled = true;
+      try {
+        const r = await fetch(API + "/api/bridge/logout", { method: "POST" });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          alert(data.detail || data.error || t("logoutError"));
+          return;
+        }
+        document.getElementById("statusDot").classList.remove("connected");
+        document.getElementById("statusText").textContent = t("statusAfterLogout");
+        document.getElementById("qrWrap").style.display = "none";
+        document.getElementById("refreshChats").disabled = true;
+        document.getElementById("searchChatsBtn").disabled = true;
+        document.getElementById("analyzeBtn").disabled = true;
+        document.getElementById("chatsHint").textContent = t("reconnectHint");
+        document.getElementById("chatsHint").style.display = "block";
+        document.getElementById("chatsList").style.display = "none";
+        document.getElementById("chatsByType").style.display = "none";
+      } catch (e) {
+        alert(e.message || t("errorNetwork"));
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    function escapeAttr(s) {
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML.replace(/"/g, "&quot;");
+    }
+    function escapeHtml(s) {
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    document.getElementById("analyzeBtn").onclick = async function () {
+      const checkboxes = document.querySelectorAll("#chatsList input[type=checkbox]:checked, #chatsByType input[type=checkbox]:checked");
+      const chatIds = Array.from(checkboxes).map((el) => el.dataset.id);
+      const prompt = document.getElementById("prompt").value.trim();
+      if (!prompt) {
+        document.getElementById("analyzeError").style.display = "block";
+        document.getElementById("analyzeError").textContent = t("enterPrompt");
+        return;
+      }
+      if (!chatIds.length) {
+        document.getElementById("analyzeError").style.display = "block";
+        document.getElementById("analyzeError").textContent = t("selectOneChat");
+        return;
+      }
+      const btn = document.getElementById("analyzeBtn");
+      const resultWrap = document.getElementById("resultWrap");
+      const resultEl = document.getElementById("result");
+      const errEl = document.getElementById("analyzeError");
+      btn.disabled = true;
+      errEl.style.display = "none";
+      resultWrap.style.display = "block";
+      resultEl.textContent = t("sendingToGemini");
+      try {
+        const syncFirst = document.getElementById("syncFirst").checked;
+        const r = await fetch(API + "/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chatIds, prompt, syncFirst }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          resultEl.textContent = "";
+          errEl.style.display = "block";
+          errEl.textContent = data.detail || data.error || r.statusText;
+          return;
+        }
+        resultEl.textContent = data.result || t("emptyResult");
+        const usageBox = document.getElementById("usageBox");
+        const sessionEl = document.getElementById("sessionUsage");
+        const u = data.usage && typeof data.usage === "object" ? data.usage : null;
+        const inTok = u ? (Number(u.input_tokens) || 0) : 0;
+        const outTok = u ? (Number(u.output_tokens) || 0) : 0;
+        const totalTok = u ? (Number(u.total_tokens) || 0) : 0;
+        const costUsd = u ? (Number(u.cost_usd) || 0) : 0;
+        sessionUsage.input += inTok;
+        sessionUsage.output += outTok;
+        sessionUsage.total += totalTok;
+        sessionUsage.costUsd += costUsd;
+        usageBox.style.display = "block";
+        if (u) {
+          const freeNote = u.in_free_tier ? " " + t("usageFreeTier") : "";
+          usageBox.innerHTML = t("usagePerRequest") + " <strong>" + inTok.toLocaleString() + "</strong>, " + t("usageOutput") + " <strong>" + outTok.toLocaleString() + "</strong>, " + t("usageTotal") + " <strong>" + totalTok.toLocaleString() + "</strong> " + t("usageTokens") + " <strong>" + (costUsd === 0 ? "0" : costUsd.toFixed(4)) + " $</strong>" + freeNote;
+        } else {
+          usageBox.innerHTML = t("usagePerRequest") + " — " + t("usageOutput") + " — " + t("usageTotal") + " — " + t("usageTokens") + " —";
+        }
+        sessionEl.style.display = "block";
+        sessionEl.innerHTML = t("usageSession") + " <strong>" + sessionUsage.total.toLocaleString() + "</strong> " + t("usageTokensWord") + ", " + t("usageCost") + " <strong>" + (sessionUsage.costUsd === 0 ? "0" : sessionUsage.costUsd.toFixed(4)) + " $</strong>";
+      } catch (e) {
+        resultEl.textContent = "";
+        errEl.style.display = "block";
+        errEl.textContent = e.message || "Ошибка сети";
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    startStatusPolling();
+  </script>
+</body>
+</html>

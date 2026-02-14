@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QR для подключения WhatsApp</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f0f12;
+      color: #e4e4e7;
+      margin: 0;
+      padding: 2rem;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+    .qr-box {
+      background: #fff;
+      padding: 1rem;
+      border-radius: 12px;
+      margin: 1rem 0;
+    }
+    .qr-box img { display: block; width: 280px; height: 280px; }
+    .status { color: #71717a; font-size: 0.9rem; margin: 1rem 0; max-width: 360px; }
+    .status.error { color: #f87171; }
+    .status.ok { color: #22c55e; }
+    a { color: #22c55e; }
+  </style>
+</head>
+<body>
+  <h1>Подключение WhatsApp — QR-код</h1>
+  <div id="box" class="qr-box" style="display: none;">
+    <img id="qrImg" alt="QR" />
+  </div>
+  <p id="status" class="status">Загрузка статуса моста…</p>
+  <p style="margin-top: 1rem;">
+    <button id="logoutBtn" type="button" style="display: none; background: #1a1a1f; border: 1px solid #2d2d35; color: #e4e4e7; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer;">Отключить мост (показать QR заново)</button>
+  </p>
+  <p style="margin-top: 1rem; font-size: 0.8rem; color: #71717a;">Если QR так и не появится: удали папку <code>bridge-baileys/auth_baileys</code>, перезапусти мост (Ctrl+C и снова <code>./run.sh</code>), открой эту страницу.</p>
+  <p><a href="/app/">← На главную</a></p>
+
+  <script>
+    const API = "";
+    let lastBlobUrl = "";
+    async function poll() {
+      const st = document.getElementById("status");
+      const box = document.getElementById("box");
+      const img = document.getElementById("qrImg");
+      try {
+        const r = await fetch(API + "/api/bridge/status");
+        const s = await r.json();
+        if (s.connected) {
+          if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
+          lastBlobUrl = "";
+          box.style.display = "none";
+          st.textContent = "Мост уже подключён. Чтобы увидеть QR (другой аккаунт), нажми кнопку «Отключить мост» ниже, подожди 15 сек и обнови страницу (F5).";
+          st.className = "status ok";
+          document.getElementById("logoutBtn").style.display = "inline-block";
+        } else {
+          document.getElementById("logoutBtn").style.display = "none";
+          const qrR = await fetch(API + "/api/bridge/qr-image?t=" + Date.now());
+          if (qrR.status === 200 && qrR.ok) {
+            const blob = await qrR.blob();
+            if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
+            lastBlobUrl = URL.createObjectURL(blob);
+            img.src = lastBlobUrl;
+            box.style.display = "block";
+            st.textContent = "Отсканируй QR в WhatsApp: Настройки → Связанные устройства → Привязать устройство";
+            st.className = "status";
+          } else {
+            box.style.display = "none";
+            st.textContent = "QR ещё нет. Нажми «Отключить мост» ниже (или на главной), подожди 15 сек и обнови эту страницу (F5). Открой также Логи моста — там должна быть строка «connection.update: qr=да».";
+            st.className = "status";
+            document.getElementById("logoutBtn").style.display = "inline-block";
+          }
+        }
+      } catch (e) {
+        box.style.display = "none";
+        st.textContent = "Мост недоступен. Запусти: ./run.sh";
+        st.className = "status error";
+      }
+    }
+    document.getElementById("logoutBtn").onclick = async function() {
+      this.disabled = true;
+      this.textContent = "Отключение…";
+      try {
+        const r = await fetch(API + "/api/bridge/logout", { method: "POST" });
+        if (r.ok) {
+          document.getElementById("status").textContent = "Мост отключён. Через 10–15 сек здесь появится QR. Обнови страницу (F5) через 15 сек.";
+          document.getElementById("status").className = "status ok";
+          document.getElementById("box").style.display = "none";
+        } else {
+          document.getElementById("status").textContent = "Ошибка: " + (await r.text());
+          document.getElementById("status").className = "status error";
+        }
+      } catch (e) {
+        document.getElementById("status").textContent = "Ошибка: " + e.message;
+        document.getElementById("status").className = "status error";
+      }
+      this.disabled = false;
+      this.textContent = "Отключить мост (показать QR заново)";
+    };
+
+    poll();
+    setInterval(poll, 2000);
+  </script>
+</body>
+</html>

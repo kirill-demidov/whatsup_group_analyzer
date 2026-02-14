@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp-teachers-bridge-baileys",
+  "version": "1.0.0",
+  "description": "Мост на Baileys: полная история через messaging-history.set, тот же REST API для бэкенда.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "express": "^4.21.0",
+    "qrcode": "^1.5.3",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

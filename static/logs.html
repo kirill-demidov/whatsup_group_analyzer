@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Логи моста — WhatsApp Teachers</title>
+  <style>
+    :root { --bg: #0f0f12; --text: #e4e4e7; --muted: #71717a; --border: #2d2d35; }
+    [data-theme="light"] { --bg: #f4f4f5; --text: #18181b; --muted: #71717a; --border: #e4e4e7; }
+    * { box-sizing: border-box; }
+    body { font-family: ui-monospace, monospace; background: var(--bg); color: var(--text); margin: 0; padding: 1rem; font-size: 12px; line-height: 1.4; }
+    h1 { font-size: 1rem; margin: 0 0 0.5rem; color: var(--muted); font-weight: 500; }
+    .toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .toolbar label { color: var(--muted); }
+    .toolbar input[type="number"] { width: 4rem; padding: 0.25rem 0.4rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
+    #log { white-space: pre-wrap; word-break: break-all; margin: 0; padding: 0.75rem; background: #0a0a0c; border: 1px solid var(--border); border-radius: 8px; max-height: calc(100vh - 120px); overflow: auto; }
+    .error { color: #f87171; }
+    .status { color: var(--muted); font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <h1>Логи моста (Baileys)</h1>
+  <div class="toolbar">
+    <label>Обновление: <span id="status" class="status">—</span> <span id="nextRefresh" class="status"></span></label>
+    <label>Строк: <input type="number" id="tail" value="200" min="50" max="500" /></label>
+    <button type="button" id="refresh">Обновить</button>
+    <label><input type="checkbox" id="autoRefresh" checked /> авто каждые 2 сек</label>
+  </div>
+  <p class="status">Если ниже пусто — мост не запущен или ещё не подключён. Запуск: <code>./run.sh</code></p>
+  <pre id="log">Загрузка…</pre>
+
+  <script>
+    const API = window.location.origin;
+    const logEl = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+    const nextRefreshEl = document.getElementById("nextRefresh");
+    const tailEl = document.getElementById("tail");
+    const autoRefreshEl = document.getElementById("autoRefresh");
+    const REFRESH_MS = 2000;
+    let intervalId = null;
+    let countdown = 0;
+
+    function loadLogs() {
+      const tail = parseInt(tailEl.value, 10) || 200;
+      fetch(API + "/api/bridge/logs?tail=" + tail + "&_=" + Date.now(), { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data) => {
+          const lines = data.lines || [];
+          logEl.textContent = lines.length ? lines.join("\n") : "(пока пусто — перезапусти мост Baileys и обнови страницу)";
+          logEl.scrollTop = logEl.scrollHeight;
+          logEl.classList.remove("error");
+          statusEl.textContent = new Date().toLocaleTimeString() + ", " + lines.length + " стр.";
+          countdown = REFRESH_MS / 1000;
+        })
+        .catch((e) => {
+          logEl.textContent = "Ошибка: " + e.message + "\n\nМост недоступен или бэкенд не запущен.";
+          logEl.classList.add("error");
+          statusEl.textContent = "ошибка";
+        });
+    }
+
+    function tick() {
+      if (!autoRefreshEl.checked) {
+        nextRefreshEl.textContent = "(авто выкл)";
+        return;
+      }
+      if (countdown > 0) {
+        nextRefreshEl.textContent = "след. через " + countdown + " с";
+        countdown--;
+      } else {
+        loadLogs();
+      }
+    }
+
+    document.getElementById("refresh").addEventListener("click", function() {
+      loadLogs();
+      countdown = REFRESH_MS / 1000;
+    });
+    tailEl.addEventListener("change", loadLogs);
+    loadLogs();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
