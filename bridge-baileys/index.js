@@ -92,8 +92,9 @@ function normalizeMessage(session, msg) {
   const key = msg.key;
   const chatId = getChatId(key);
   const from = key.remoteJid || chatId;
-  const fromId = key.participant || key.remoteJid || chatId;
-  const fromName = resolveSessionContact(session, fromId, msg.pushName);
+  // В group history sync key.participant может отсутствовать
+  const fromId = key.participant || msg.participant || key.remoteJid || chatId;
+  const fromName = resolveSessionContact(session, fromId, msg.pushName || msg.verifiedBizName);
   let body = "";
   const m = msg.message;
   if (m) {
