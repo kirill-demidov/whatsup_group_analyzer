@@ -12,6 +12,7 @@ services:
       - BACKEND_URL=http://backend:8080
     volumes:
       - ./bridge-baileys/auth_baileys:/app/auth_baileys
+      - ./bridge-baileys/data:/app/data
     restart: unless-stopped
 
   backend:
