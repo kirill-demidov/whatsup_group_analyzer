@@ -17,10 +17,16 @@ from src.auth import (
     auth_enabled,
     get_current_user,
     get_user_chat_ids,
+    login_google_response,
     login_response,
     logout_response,
     require_user,
     verify_user,
+)
+from src.google_auth import (
+    exchange_code_for_userinfo,
+    get_authorization_url,
+    google_oauth_enabled,
 )
 from src.config import config
 from src.logger import get_logger
@@ -159,6 +165,12 @@ def api_logout(response: Response):
     return logout_response(response)
 
 
+@app.get("/api/auth/providers")
+def api_auth_providers():
+    """Available auth providers."""
+    return {"google": google_oauth_enabled()}
+
+
 @app.get("/api/me")
 def api_me(request: fastapi.Request):
     """Текущий пользователь. 401 если не залогинен (при AUTH_ENABLED)."""
@@ -168,6 +180,51 @@ def api_me(request: fastapi.Request):
     if user is None:
         raise fastapi.HTTPException(401, "Login required")
     return {"username": user.username, "chat_ids": get_user_chat_ids(user.username)}
+
+
+# --- Google OAuth ---
+_google_oauth_states: dict[str, bool] = {}  # state → True (простой CSRF protection)
+
+
+@app.get("/api/auth/google")
+def api_auth_google(request: fastapi.Request):
+    """Redirect to Google OAuth consent screen."""
+    if not google_oauth_enabled():
+        raise fastapi.HTTPException(501, "Google OAuth not configured")
+    url, state = get_authorization_url(request)
+    _google_oauth_states[state] = True
+    # Limit stored states to prevent memory leak
+    if len(_google_oauth_states) > 100:
+        keys = list(_google_oauth_states.keys())
+        for k in keys[:50]:
+            _google_oauth_states.pop(k, None)
+    return RedirectResponse(url=url, status_code=302)
+
+
+@app.get("/api/auth/google/callback")
+def api_auth_google_callback(request: fastapi.Request, code: str = "", state: str = "", error: str = ""):
+    """Google OAuth callback: exchange code, create/login user, redirect to app."""
+    if error:
+        logger.warning("Google OAuth error: %s", error)
+        return RedirectResponse(url="/app/login.html?error=google_denied", status_code=302)
+    if not code or not state:
+        raise fastapi.HTTPException(400, "Missing code or state")
+    if state not in _google_oauth_states:
+        raise fastapi.HTTPException(400, "Invalid state (CSRF)")
+    _google_oauth_states.pop(state, None)
+
+    try:
+        userinfo = exchange_code_for_userinfo(code, request)
+    except Exception as e:
+        logger.exception("Google OAuth token exchange failed: %s", e)
+        return RedirectResponse(url="/app/login.html?error=google_failed", status_code=302)
+
+    email = userinfo.get("email")
+    if not email:
+        raise fastapi.HTTPException(400, "Google account has no email")
+    name = userinfo.get("name") or email
+    logger.info("Google OAuth login: %s (%s)", email, name)
+    return login_google_response(email, name, None)
 
 
 def _current_user(request: fastapi.Request) -> CurrentUser:
@@ -345,7 +402,7 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
                 except (ValueError, TypeError):
                     pass
             date = m.get("date") or m.get("timestamp") or ""
-            from_name = m.get("from_name") or m.get("from") or "?"
+            from_name = m.get("from_name") or m.get("from_id") or m.get("from") or "?"
             body_text = (m.get("body") or "").strip()
             if body_text:
                 parts.append(f"[{date}] {from_name}: {body_text}\n")

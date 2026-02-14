@@ -8,6 +8,7 @@ from typing import Any
 import bcrypt
 
 from fastapi import Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from src.config import config
@@ -166,3 +167,28 @@ def logout_response(response: Response) -> dict:
 def hash_password(password: str) -> str:
     raw = password.encode("utf-8")[:72]
     return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("utf-8")
+
+
+def ensure_google_user(email: str, name: str | None = None) -> str:
+    """Create user from Google login if not exists. Returns username (= email)."""
+    data = _load_users()
+    users = data.get("users") or {}
+    if email not in users:
+        users[email] = {
+            "display_name": name or email,
+            "auth_provider": "google",
+            "chat_ids": None,
+        }
+        data["users"] = users
+        _save_users(data)
+        log.info("Google OAuth: создан пользователь %s (%s)", email, name)
+    return email
+
+
+def login_google_response(email: str, name: str | None, response: Response) -> RedirectResponse:
+    """Автосоздание пользователя + cookie + redirect на /app/."""
+    username = ensure_google_user(email, name)
+    value = create_session_cookie(username)
+    redirect = RedirectResponse(url="/app/", status_code=302)
+    redirect.set_cookie(key=COOKIE_NAME, value=value, max_age=MAX_AGE_DAYS * 86400, httponly=True, samesite="lax")
+    return redirect

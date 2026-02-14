@@ -152,7 +152,7 @@
     </div>
     <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
       <button type="button" id="logoutBridgeBtn" style="background: var(--card); border: 1px solid var(--border); color: var(--muted);" data-i18n="logoutBtn">Отключить мост / другой аккаунт</button>
-      <a href="/app/logs.html" target="_blank" rel="noopener" style="color: var(--accent); font-size: 0.875rem; text-decoration: underline;" data-i18n="bridgeLogsLink">Логи моста (открыть в новой вкладке)</a>
+      <a href="#" onclick="loadLogs(); return false;" style="color: var(--accent); font-size: 0.875rem; text-decoration: underline;" data-i18n="bridgeLogsLink">Логи моста</a>
       <span style="color: var(--muted);"> · </span>
       <a href="/app/qr.html" target="_blank" rel="noopener" style="color: var(--accent); font-size: 0.875rem; text-decoration: underline;">Только QR (если не появляется выше)</a>
     </div>
@@ -177,7 +177,7 @@
     <div id="chatsByType" style="display:none"></div>
     <p id="chatsCountHint" class="count-hint" style="display:none; color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem;" data-i18n="chatsCountHint">Кол-во сообщений показывается при мосте Baileys (./run.sh).</p>
     <p id="chatsAllEmptyHint" class="count-hint" style="display:none; color: var(--muted); font-size: 0.8rem; margin-top: 0.4rem; max-width: 420px;" data-i18n="chatsAllEmptyHint">Все чаты с 0 сообщений? Подожди 1–2 мин после подключения и нажми «Обновить список».</p>
-    <p class="count-hint" style="color: var(--muted); font-size: 0.75rem; margin-top: 0.5rem;">Проверить загрузку истории: <a href="/api/bridge/history-stats" target="_blank" rel="noopener" style="color: var(--accent);">статистика (JSON)</a> — смотри <code>totalMessages</code> и <code>byChat[].messageCount</code>. В <a href="/app/logs.html" target="_blank" rel="noopener" style="color: var(--accent);">логах моста</a> после подключения должна появиться строка «messaging-history.set». Если <code>totalMessages</code> так и остаётся 0 — WhatsApp часто не отдаёт историю связанным «десктопным» устройствам; новые сообщения будут появляться в реальном времени, старую историю можно подтянуть только по запросу (если в чате уже есть хотя бы одно сообщение).</p>
+    <p class="count-hint" style="color: var(--muted); font-size: 0.75rem; margin-top: 0.5rem;">Проверить загрузку истории: <a href="#" onclick="loadStats(); return false;" style="color: var(--accent);">статистика (JSON)</a> — смотри <code>totalMessages</code> и <code>byChat[].messageCount</code>. В <a href="#" onclick="loadLogs(); return false;" style="color: var(--accent);">логах моста</a> после подключения должна появиться строка «messaging-history.set». Если <code>totalMessages</code> так и остаётся 0 — WhatsApp часто не отдаёт историю связанным «десктопным» устройствам; новые сообщения будут появляться в реальном времени, старую историю можно подтянуть только по запросу (если в чате уже есть хотя бы одно сообщение).</p>
     <button type="button" id="refreshChats" style="margin-top:0.5rem" disabled data-i18n="refreshChats">Обновить список</button>
   </section>
 
@@ -201,8 +201,74 @@
     <div id="analyzeError" class="error" style="margin-top:0.5rem; display:none"></div>
   </section>
 
+  <section id="logsPanel" class="panel" style="display:none">
+    <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
+      <button type="button" onclick="showMainView()" style="background:var(--card); border:1px solid var(--border); color:var(--text);">&larr; Назад</button>
+      <h2 style="margin:0; color:var(--muted);">Логи моста</h2>
+      <button type="button" onclick="loadLogs()" style="font-size:0.8rem; padding:0.3rem 0.7rem;">Обновить</button>
+    </div>
+    <pre id="logsPanelContent" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:1rem; max-height:70vh; overflow-y:auto; font-size:0.8rem; white-space:pre-wrap; word-break:break-all;"></pre>
+  </section>
+
+  <section id="statsPanel" class="panel" style="display:none">
+    <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
+      <button type="button" onclick="showMainView()" style="background:var(--card); border:1px solid var(--border); color:var(--text);">&larr; Назад</button>
+      <h2 style="margin:0; color:var(--muted);">Статистика истории</h2>
+      <button type="button" onclick="loadStats()" style="font-size:0.8rem; padding:0.3rem 0.7rem;">Обновить</button>
+    </div>
+    <pre id="statsPanelContent" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:1rem; max-height:70vh; overflow-y:auto; font-size:0.8rem; white-space:pre-wrap; word-break:break-all;"></pre>
+  </section>
+
   <script>
     const API = ""; // same origin
+    const mainSections = ["connect", "chats", "analyze"];
+    let logsAutoRefresh = null;
+
+    function showPanel(panelId) {
+      mainSections.forEach(id => document.getElementById(id).style.display = "none");
+      document.querySelectorAll(".panel").forEach(p => p.style.display = "none");
+      document.getElementById(panelId).style.display = "block";
+    }
+
+    function showMainView() {
+      document.querySelectorAll(".panel").forEach(p => p.style.display = "none");
+      mainSections.forEach(id => document.getElementById(id).style.display = "");
+      if (logsAutoRefresh) { clearInterval(logsAutoRefresh); logsAutoRefresh = null; }
+    }
+
+    async function loadLogs() {
+      showPanel("logsPanel");
+      const el = document.getElementById("logsPanelContent");
+      el.textContent = "Загрузка…";
+      try {
+        const r = await fetch(API + "/api/bridge/logs?tail=500");
+        const data = await r.json();
+        el.textContent = (data.lines || []).join("\n") || "(пусто)";
+        el.scrollTop = el.scrollHeight;
+      } catch (e) { el.textContent = "Ошибка: " + e.message; }
+      if (!logsAutoRefresh) {
+        logsAutoRefresh = setInterval(async () => {
+          if (document.getElementById("logsPanel").style.display === "none") return;
+          try {
+            const r = await fetch(API + "/api/bridge/logs?tail=500");
+            const data = await r.json();
+            el.textContent = (data.lines || []).join("\n") || "(пусто)";
+            el.scrollTop = el.scrollHeight;
+          } catch (_) {}
+        }, 5000);
+      }
+    }
+
+    async function loadStats() {
+      showPanel("statsPanel");
+      const el = document.getElementById("statsPanelContent");
+      el.textContent = "Загрузка…";
+      try {
+        const r = await fetch(API + "/api/bridge/history-stats");
+        const data = await r.json();
+        el.textContent = JSON.stringify(data, null, 2);
+      } catch (e) { el.textContent = "Ошибка: " + e.message; }
+    }
 
     // При включённой авторизации редирект на логин при 401
     (async function checkAuth() {
@@ -233,7 +299,7 @@
         connectTitle: "Подключение моста", statusCheck: "Проверка…", statusConnected: "Мост подключён",
         statusWaitingQr: "Ожидание QR", statusBridgeUnavailable: "Мост недоступен (запусти bridge с WEB_PORT=3080)",
         qrHint: "Отсканируй QR в WhatsApp: Настройки → Связанные устройства → Привязать устройство",
-        logoutBtn: "Отключить мост / другой аккаунт", bridgeLogsLink: "Логи моста (в новой вкладке)",
+        logoutBtn: "Отключить мост / другой аккаунт", bridgeLogsLink: "Логи моста",
         chatsTitle: "Чаты", searchPlaceholder: "Поиск по названию группы/чата", searchBtn: "Искать",
         typeLabel: "Тип:", typeAll: "Все", typeGroups: "Группы", typeChannels: "Каналы", typeDirect: "Личные",
         chatsHintConnect: "Сначала подключи мост.", refreshChats: "Обновить список", noChats: "Нет чатов", messagesCount: "сообщ.",
@@ -261,7 +327,7 @@
         connectTitle: "Bridge connection", statusCheck: "Checking…", statusConnected: "Bridge connected",
         statusWaitingQr: "Waiting for QR", statusBridgeUnavailable: "Bridge unavailable (run bridge with WEB_PORT=3080)",
         qrHint: "Scan QR in WhatsApp: Settings → Linked devices → Link a device",
-        logoutBtn: "Disconnect bridge / other account", bridgeLogsLink: "Bridge logs (new tab)",
+        logoutBtn: "Disconnect bridge / other account", bridgeLogsLink: "Bridge logs",
         chatsTitle: "Chats", searchPlaceholder: "Search by group/chat name", searchBtn: "Search",
         typeLabel: "Type:", typeAll: "All", typeGroups: "Groups", typeChannels: "Channels", typeDirect: "Direct",
         chatsHintConnect: "Connect the bridge first.", refreshChats: "Refresh list", noChats: "No chats", messagesCount: "msgs",
@@ -289,7 +355,7 @@
         connectTitle: "חיבור הגשר", statusCheck: "בודק…", statusConnected: "הגשר מחובר",
         statusWaitingQr: "מחכה ל-QR", statusBridgeUnavailable: "הגשר לא זמין (הפעל bridge עם WEB_PORT=3080)",
         qrHint: "סרוק QR ב-WhatsApp: הגדרות → מכשירים מקושרים → קישור מכשיר",
-        logoutBtn: "נתק גשר / חשבון אחר", bridgeLogsLink: "לוג גשר (בטאב חדש)",
+        logoutBtn: "נתק גשר / חשבון אחר", bridgeLogsLink: "לוג גשר",
         chatsTitle: "צ'אטים", searchPlaceholder: "חיפוש לפי שם קבוצה/צ'אט", searchBtn: "חפש",
         typeLabel: "סוג:", typeAll: "הכל", typeGroups: "קבוצות", typeChannels: "ערוצים", typeDirect: "ישיר",
         chatsHintConnect: "חבר קודם את הגשר.", refreshChats: "רענן רשימה", noChats: "אין צ'אטים", messagesCount: "הודעות",

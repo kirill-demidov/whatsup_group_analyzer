@@ -77,6 +77,11 @@ class Config:
     APP_SECRET_KEY: str = _str("APP_SECRET_KEY")  # секрет для подписи сессий (обязателен при AUTH_ENABLED)
     AUTH_USERS_FILE: str = _str("AUTH_USERS_FILE")  # путь к data/users.json (логины и chat_ids по пользователю)
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = _str("GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET: str = _str("GOOGLE_CLIENT_SECRET")
+    GOOGLE_REDIRECT_URI: str = _str("GOOGLE_REDIRECT_URI")  # auto-detect from request if empty
+
 
 config = Config()
 

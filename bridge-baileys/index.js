@@ -20,6 +20,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_BASE_DIR = path.join(__dirname, "data");
 const toDataURL = (qr) => (qrcode.toDataURL ? qrcode.toDataURL(qr) : Promise.resolve(""));
 
 // --- Кольцевой буфер логов для вывода в UI (последние 500 строк) ---
@@ -44,10 +45,116 @@ const WEB_PORT = parseInt(process.env.WEB_PORT || "3080", 10);
 // --- Store: чаты и сообщения по chatId (совместимый формат с текущим API) ---
 /** @type {Map<string, { id: string, name: string, isGroup: boolean, type: string, lastActive: number }>} */
 const chatStore = new Map();
-/** @type {Map<string, Array<{ id: string, from: string, from_name?: string, body: string, timestamp: number, date: string | null }>>} */
+/** @type {Map<string, Array<{ id: string, from: string, from_name?: string, from_id?: string, body: string, timestamp: number, date: string | null }>>} */
 const messagesByChat = new Map();
 /** Сообщения по key (remoteJid_id) для getMessage */
 const messageById = new Map();
+/** Хранилище имён контактов: jid → name */
+const contactNames = new Map();
+
+// --- Persistence: сохранение данных на диск ---
+let dirty = false;
+let currentAccountJid = null;
+
+function sanitizeJid(jid) {
+  return (jid || "unknown").replace(/[^a-zA-Z0-9@._-]/g, "_");
+}
+
+function getAccountDataDir() {
+  const jid = currentAccountJid || "unknown";
+  return path.join(DATA_BASE_DIR, sanitizeJid(jid));
+}
+
+function saveToDisk() {
+  if (!currentAccountJid) return;
+  const dir = getAccountDataDir();
+  fs.mkdirSync(dir, { recursive: true });
+
+  const chatsData = Object.fromEntries(chatStore);
+  const messagesData = Object.fromEntries(messagesByChat);
+  const contactsData = Object.fromEntries(contactNames);
+
+  for (const [name, data] of [["chats.json", chatsData], ["messages.json", messagesData], ["contacts.json", contactsData]]) {
+    const target = path.join(dir, name);
+    const tmp = target + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(data));
+    fs.renameSync(tmp, target);
+  }
+  dirty = false;
+  pushLog("INFO", `Данные сохранены на диск: ${chatStore.size} чатов, ${Array.from(messagesByChat.values()).reduce((s, a) => s + a.length, 0)} сообщений, ${contactNames.size} контактов`);
+}
+
+function loadFromDisk(jid) {
+  const dir = path.join(DATA_BASE_DIR, sanitizeJid(jid));
+  if (!fs.existsSync(dir)) return;
+
+  try {
+    const chatsFile = path.join(dir, "chats.json");
+    if (fs.existsSync(chatsFile)) {
+      const data = JSON.parse(fs.readFileSync(chatsFile, "utf-8"));
+      for (const [k, v] of Object.entries(data)) {
+        if (!chatStore.has(k)) chatStore.set(k, v);
+      }
+    }
+  } catch (e) { pushLog("WARN", "Ошибка загрузки chats.json: " + e.message); }
+
+  try {
+    const msgsFile = path.join(dir, "messages.json");
+    if (fs.existsSync(msgsFile)) {
+      const data = JSON.parse(fs.readFileSync(msgsFile, "utf-8"));
+      for (const [k, v] of Object.entries(data)) {
+        if (!messagesByChat.has(k)) messagesByChat.set(k, v);
+        else {
+          const existing = messagesByChat.get(k);
+          const existingIds = new Set(existing.map(m => m.id));
+          for (const msg of v) {
+            if (!existingIds.has(msg.id)) existing.push(msg);
+          }
+          existing.sort((a, b) => a.timestamp - b.timestamp);
+        }
+      }
+    }
+  } catch (e) { pushLog("WARN", "Ошибка загрузки messages.json: " + e.message); }
+
+  try {
+    const contactsFile = path.join(dir, "contacts.json");
+    if (fs.existsSync(contactsFile)) {
+      const data = JSON.parse(fs.readFileSync(contactsFile, "utf-8"));
+      for (const [k, v] of Object.entries(data)) {
+        if (!contactNames.has(k)) contactNames.set(k, v);
+      }
+    }
+  } catch (e) { pushLog("WARN", "Ошибка загрузки contacts.json: " + e.message); }
+
+  const totalMsg = Array.from(messagesByChat.values()).reduce((s, a) => s + a.length, 0);
+  pushLog("INFO", `Loaded ${chatStore.size} chats, ${totalMsg} messages, ${contactNames.size} contacts from disk`);
+}
+
+// Dirty-флаг: сохраняем каждые 30 секунд если были изменения
+setInterval(() => {
+  if (dirty) saveToDisk();
+}, 30_000);
+
+// Graceful shutdown
+function gracefulShutdown(signal) {
+  pushLog("INFO", `${signal} получен, сохраняю данные…`);
+  if (dirty) saveToDisk();
+  process.exit(0);
+}
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+
+/** Извлекает номер телефона из JID: 79161234567@s.whatsapp.net → +79161234567 */
+function phoneFromJid(jid) {
+  if (!jid) return undefined;
+  const match = jid.match(/^(\d+)@/);
+  return match ? "+" + match[1] : undefined;
+}
+
+/** Резолвит имя для JID: контакты → pushName → номер телефона */
+function resolveContactName(jid, pushName) {
+  return contactNames.get(jid) || pushName || phoneFromJid(jid) || undefined;
+}
 
 let sock = null;
 let connected = false;
@@ -64,6 +171,9 @@ function normalizeMessage(msg) {
   const chatId = getChatId(key);
   const id = key.id || `${chatId}_${msg.messageTimestamp || 0}`;
   const from = key.remoteJid || chatId;
+  // Для групповых сообщений отправитель — key.participant, не remoteJid (JID чата)
+  const fromId = key.participant || key.remoteJid || chatId;
+  const fromName = resolveContactName(fromId, msg.pushName);
   let body = "";
   const m = msg.message;
   if (m) {
@@ -83,7 +193,8 @@ function normalizeMessage(msg) {
     id: keyId ? `${from}_${keyId}` : `${from}_${timestamp}_${Date.now()}`,
     keyId, // сырой id для fetchMessageHistory
     from,
-    from_name: msg.pushName || undefined,
+    from_id: fromId,
+    from_name: fromName,
     body: (body || "").trim(),
     timestamp,
     date: timestamp ? new Date(timestamp * 1000).toISOString() : null,
@@ -111,6 +222,7 @@ function addMessageToStore(msg) {
     const last = list[list.length - 1];
     const chat = chatStore.get(chatId);
     if (chat) chat.lastActive = last.timestamp;
+    dirty = true;
   }
 }
 
@@ -123,12 +235,13 @@ function ensureChat(jid, name, isGroup, lastActiveOpt) {
       type: chatType(jid, !!isGroup),
       lastActive: lastActiveOpt != null ? Number(lastActiveOpt) : 0,
     });
+    dirty = true;
   } else {
     const c = chatStore.get(jid);
-    if (name) c.name = name;
+    if (name && c.name !== name) { c.name = name; dirty = true; }
     if (lastActiveOpt != null) {
         const ts = Number(lastActiveOpt);
-        if (ts > 0 && (c.lastActive == null || c.lastActive < ts)) c.lastActive = ts;
+        if (ts > 0 && (c.lastActive == null || c.lastActive < ts)) { c.lastActive = ts; dirty = true; }
     }
   }
 }
@@ -203,6 +316,11 @@ async function startSock() {
     if (connection === "open") {
       connected = true;
       lastQrDataUrl = null;
+      // Persistence: запомнить JID и загрузить данные с диска
+      if (socket.user?.id) {
+        currentAccountJid = socket.user.id;
+        loadFromDisk(currentAccountJid);
+      }
       console.log("Мост (Baileys) подключён. BACKEND_URL=", BACKEND_URL);
       pushLog("INFO", "Подключено. Ожидание истории от WhatsApp (syncFullHistory=true). Обычно 1–2 мин; в логах появится «messaging-history.set». Если сообщений так и будет 0 — для этого аккаунта/устройства WhatsApp может не отдавать историю.");
       if (TARGET_GROUP_ID) console.log("Фильтр по группе:", TARGET_GROUP_ID);
@@ -261,6 +379,15 @@ async function startSock() {
         }
       }
     }
+    // Для чатов с lastActive=0 — обновить из последнего сообщения
+    for (const [cid, chat] of chatStore) {
+      if (chat.lastActive > 0) continue;
+      const msgs = messagesByChat.get(cid);
+      if (msgs && msgs.length > 0) {
+        const lastTs = msgs[msgs.length - 1].timestamp;
+        if (lastTs > 0) chat.lastActive = lastTs;
+      }
+    }
     const totalMsg = Array.from(messagesByChat.values()).reduce((s, arr) => s + arr.length, 0);
     pushLog("INFO", "History sync итого: чатов=" + chatStore.size + ", сообщений=" + totalMsg);
   });
@@ -312,7 +439,7 @@ async function startSock() {
     for (const c of chats || []) {
       const jid = c.id || c.jid;
       if (jid) {
-        const lastActive = c.lastMessageRecvTimestamp ?? c.conversationTimestamp;
+        const lastActive = c.lastMessageRecvTimestamp ?? c.conversationTimestamp ?? c.lastMessageTimestamp;
         ensureChat(jid, c.name || c.subject, jid.endsWith("@g.us"), lastActive);
       }
     }
@@ -322,9 +449,27 @@ async function startSock() {
     for (const u of updates || []) {
       const jid = u.id;
       if (jid) {
-        const lastActive = u.lastMessageRecvTimestamp ?? u.conversationTimestamp;
+        const lastActive = u.lastMessageRecvTimestamp ?? u.conversationTimestamp ?? u.lastMessageTimestamp;
         ensureChat(jid, u.name || u.subject, jid.endsWith("@g.us"), lastActive);
       }
+    }
+  });
+
+  // Контакты: сохраняем имена для резолва отправителей
+  socket.ev.on("contacts.upsert", (contacts) => {
+    for (const c of contacts || []) {
+      const jid = c.id;
+      const name = c.name || c.notify || c.verifiedName;
+      if (jid && name) { contactNames.set(jid, name); dirty = true; }
+    }
+    if (contacts?.length) pushLog("INFO", "contacts.upsert: " + contacts.length + " контактов");
+  });
+
+  socket.ev.on("contacts.update", (updates) => {
+    for (const c of updates || []) {
+      const jid = c.id;
+      const name = c.name || c.notify || c.verifiedName;
+      if (jid && name) { contactNames.set(jid, name); dirty = true; }
     }
   });
 
@@ -471,15 +616,19 @@ webApp.post("/api/logout", async (req, res) => {
     return res.json({ ok: true, message: "Уже отключён" });
   }
   try {
+    // Сохранить данные на диск перед logout (они НЕ удаляются)
+    if (dirty) saveToDisk();
     if (sock) {
       await sock.logout();
       sock = null;
     }
     connected = false;
     lastQrDataUrl = null;
+    currentAccountJid = null;
     chatStore.clear();
     messagesByChat.clear();
     messageById.clear();
+    contactNames.clear();
     const authDir = path.join(__dirname, "auth_baileys");
     if (fs.existsSync(authDir)) {
       for (const f of fs.readdirSync(authDir)) {
