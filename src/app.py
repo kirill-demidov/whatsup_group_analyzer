@@ -412,9 +412,9 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
             messages = body.get("messages", [])
         else:
             logger.info("Чат %s: загружено %s сообщений из GCS", cid[:24], len(messages))
-        # Обрезаем до effective_limit последних сообщений
+        # Обрезаем до effective_limit последних сообщений (мост возвращает хронологически)
         if len(messages) > effective_limit:
-            messages = messages[:effective_limit]
+            messages = messages[-effective_limit:]
         parts.append(f"\n=== Чат id: {cid} ===\n")
         for m in reversed(messages):  # хронологический порядок
             ts = m.get("timestamp")
