@@ -148,10 +148,12 @@ function addMessageToSession(session, msg) {
 }
 
 function ensureSessionChat(session, jid, name, isGroup, lastActiveOpt) {
+  // Для direct чатов подтягиваем имя из contactNames если не передано
+  const resolvedName = name || (!isGroup ? session.contactNames.get(jid) : null);
   if (!session.chatStore.has(jid)) {
     session.chatStore.set(jid, {
       id: jid,
-      name: name || "—",
+      name: resolvedName || "—",
       isGroup: !!isGroup,
       type: chatType(jid, !!isGroup),
       lastActive: lastActiveOpt != null ? Number(lastActiveOpt) : 0,
@@ -159,7 +161,7 @@ function ensureSessionChat(session, jid, name, isGroup, lastActiveOpt) {
     session.dirty = true;
   } else {
     const c = session.chatStore.get(jid);
-    if (name && c.name !== name) { c.name = name; session.dirty = true; }
+    if (resolvedName && resolvedName !== "—" && c.name !== resolvedName) { c.name = resolvedName; session.dirty = true; }
     if (lastActiveOpt != null) {
       const ts = Number(lastActiveOpt);
       if (ts > 0 && (c.lastActive == null || c.lastActive < ts)) { c.lastActive = ts; session.dirty = true; }
@@ -475,7 +477,13 @@ async function startSock(username) {
       for (const c of contacts || []) {
         const jid = c.id;
         const name = c.name || c.notify || c.verifiedName;
-        if (jid && name) { session.contactNames.set(jid, name); session.dirty = true; }
+        if (jid && name) {
+          session.contactNames.set(jid, name);
+          // Обновляем имя direct чата если было "—"
+          const chat = session.chatStore.get(jid);
+          if (chat && !chat.isGroup && (chat.name === "—" || !chat.name)) { chat.name = name; }
+          session.dirty = true;
+        }
       }
       if (contacts?.length) pushLog("INFO", `[${username}] contacts.upsert: ${contacts.length} контактов`);
     });
@@ -484,7 +492,12 @@ async function startSock(username) {
       for (const c of updates || []) {
         const jid = c.id;
         const name = c.name || c.notify || c.verifiedName;
-        if (jid && name) { session.contactNames.set(jid, name); session.dirty = true; }
+        if (jid && name) {
+          session.contactNames.set(jid, name);
+          const chat = session.chatStore.get(jid);
+          if (chat && !chat.isGroup && (chat.name === "—" || !chat.name)) { chat.name = name; }
+          session.dirty = true;
+        }
       }
     });
 
@@ -681,11 +694,13 @@ webApp.get("/api/chat/:id/metadata", (req, res) => {
   const chat = session.chatStore.get(chatId);
   if (!chat) return res.status(404).json({ error: "Chat not found" });
 
-  // Собираем имена отправителей из сообщений группы
+  // Собираем имена отправителей из сообщений группы (пропускаем телефонные номера)
   const msgs = session.messagesByChat.get(chatId) || [];
   const senderNames = new Map();
   for (const m of msgs) {
-    if (m.from_id && m.from_name) senderNames.set(m.from_id, m.from_name);
+    if (m.from_id && m.from_name && !/^\+?\d+$/.test(m.from_name)) {
+      senderNames.set(m.from_id, m.from_name);
+    }
   }
 
   res.json({
