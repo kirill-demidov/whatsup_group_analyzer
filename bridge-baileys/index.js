@@ -680,6 +680,14 @@ webApp.get("/api/chat/:id/metadata", (req, res) => {
   const chatId = req.params.id;
   const chat = session.chatStore.get(chatId);
   if (!chat) return res.status(404).json({ error: "Chat not found" });
+
+  // Собираем имена отправителей из сообщений группы
+  const msgs = session.messagesByChat.get(chatId) || [];
+  const senderNames = new Map();
+  for (const m of msgs) {
+    if (m.from_id && m.from_name) senderNames.set(m.from_id, m.from_name);
+  }
+
   res.json({
     id: chat.id,
     name: chat.name,
@@ -692,6 +700,7 @@ webApp.get("/api/chat/:id/metadata", (req, res) => {
       ...p,
       name: p.name || session.contactNames.get(p.id) || null,
     })),
+    knownSenders: Array.from(senderNames, ([id, name]) => ({ id, name })),
   });
 });
 
