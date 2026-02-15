@@ -342,18 +342,18 @@ async function startSock(username) {
                 const lastActive = meta.subjectTime > 0 ? meta.subjectTime : (meta.creation > 0 ? meta.creation : undefined);
                 ensureSessionChat(session, jid, meta.subject || meta.name || "—", true, lastActive);
 
-                // Участники с именами и ролями
-                const participants = (meta.participants || []).map((p) => ({
-                  id: p.id,
-                  name: p.notify || p.name || null,
-                  admin: p.admin || null,
-                }));
-
                 // Сохраняем имена участников в contactNames
                 for (const p of meta.participants || []) {
                   const pName = p.notify || p.name;
                   if (p.id && pName) session.contactNames.set(p.id, pName);
                 }
+
+                // Участники с именами и ролями (fallback на contactNames для LID)
+                const participants = (meta.participants || []).map((p) => ({
+                  id: p.id,
+                  name: p.notify || p.name || session.contactNames.get(p.id) || null,
+                  admin: p.admin || null,
+                }));
 
                 updateGroupMeta(session, jid, {
                   description: meta.desc || "",
@@ -508,15 +508,15 @@ async function startSock(username) {
         try {
           const meta = await socket.groupMetadata(jid);
           if (meta) {
-            const participants = (meta.participants || []).map((p) => ({
-              id: p.id,
-              name: p.notify || p.name || null,
-              admin: p.admin || null,
-            }));
             for (const p of meta.participants || []) {
               const pName = p.notify || p.name;
               if (p.id && pName) session.contactNames.set(p.id, pName);
             }
+            const participants = (meta.participants || []).map((p) => ({
+              id: p.id,
+              name: p.notify || p.name || session.contactNames.get(p.id) || null,
+              admin: p.admin || null,
+            }));
             updateGroupMeta(session, jid, {
               description: meta.desc || "",
               owner: meta.owner || meta.subjectOwner || null,
@@ -688,7 +688,10 @@ webApp.get("/api/chat/:id/metadata", (req, res) => {
     lastActive: chat.lastActive || null,
     description: chat.description || null,
     owner: chat.owner || null,
-    participants: chat.participants || [],
+    participants: (chat.participants || []).map((p) => ({
+      ...p,
+      name: p.name || session.contactNames.get(p.id) || null,
+    })),
   });
 });
 
