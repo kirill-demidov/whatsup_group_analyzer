@@ -167,6 +167,15 @@ function ensureSessionChat(session, jid, name, isGroup, lastActiveOpt) {
   }
 }
 
+function updateGroupMeta(session, jid, meta) {
+  const chat = session.chatStore.get(jid);
+  if (!chat) return;
+  if (meta.description !== undefined) chat.description = meta.description || "";
+  if (meta.owner !== undefined) chat.owner = meta.owner || null;
+  if (meta.participants !== undefined) chat.participants = meta.participants;
+  session.dirty = true;
+}
+
 // ===================== Persistence =====================
 
 function getSessionDataDir(username) {
@@ -324,17 +333,35 @@ async function startSock(username) {
           loadSessionFromDisk(session, username);
         }
         pushLog("INFO", `[${username}] Подключено. Ожидание истории (syncFullHistory=true).`);
-        // Подгружаем список групп
+        // Подгружаем список групп с полными метаданными
         if (socket.groupFetchAllParticipating) {
           socket.groupFetchAllParticipating().then((groups) => {
             if (groups && typeof groups === "object") {
               for (const [jid, meta] of Object.entries(groups)) {
-                if (jid && meta) {
-                  const lastActive = meta.subjectTime > 0 ? meta.subjectTime : (meta.creation > 0 ? meta.creation : undefined);
-                  ensureSessionChat(session, jid, meta.subject || meta.name || "—", true, lastActive);
+                if (!jid || !meta) continue;
+                const lastActive = meta.subjectTime > 0 ? meta.subjectTime : (meta.creation > 0 ? meta.creation : undefined);
+                ensureSessionChat(session, jid, meta.subject || meta.name || "—", true, lastActive);
+
+                // Участники с именами и ролями
+                const participants = (meta.participants || []).map((p) => ({
+                  id: p.id,
+                  name: p.notify || p.name || null,
+                  admin: p.admin || null,
+                }));
+
+                // Сохраняем имена участников в contactNames
+                for (const p of meta.participants || []) {
+                  const pName = p.notify || p.name;
+                  if (p.id && pName) session.contactNames.set(p.id, pName);
                 }
+
+                updateGroupMeta(session, jid, {
+                  description: meta.desc || "",
+                  owner: meta.owner || meta.subjectOwner || null,
+                  participants,
+                });
               }
-              pushLog("INFO", `[${username}] Загружено групп: ${Object.keys(groups).length}`);
+              pushLog("INFO", `[${username}] Загружено групп: ${Object.keys(groups).length} (с метаданными)`);
             }
           }).catch((e) => pushLog("ERROR", `[${username}] groupFetchAllParticipating: ${e.message}`));
         }
@@ -458,6 +485,47 @@ async function startSock(username) {
         const jid = c.id;
         const name = c.name || c.notify || c.verifiedName;
         if (jid && name) { session.contactNames.set(jid, name); session.dirty = true; }
+      }
+    });
+
+    socket.ev.on("groups.update", (updates) => {
+      for (const u of updates || []) {
+        const jid = u.id;
+        if (!jid) continue;
+        if (u.subject) ensureSessionChat(session, jid, u.subject, true);
+        const patch = {};
+        if (u.desc !== undefined) patch.description = u.desc || "";
+        if (Object.keys(patch).length > 0) updateGroupMeta(session, jid, patch);
+      }
+      if (updates?.length) pushLog("INFO", `[${username}] groups.update: ${updates.length} групп обновлено`);
+    });
+
+    socket.ev.on("group-participants.update", async ({ id: jid, participants: pIds, action }) => {
+      if (!jid) return;
+      pushLog("INFO", `[${username}] group-participants.update: ${action} ${pIds?.length || 0} участников в ${jid}`);
+      // Перезагружаем полные метаданные группы
+      if (socket.groupMetadata) {
+        try {
+          const meta = await socket.groupMetadata(jid);
+          if (meta) {
+            const participants = (meta.participants || []).map((p) => ({
+              id: p.id,
+              name: p.notify || p.name || null,
+              admin: p.admin || null,
+            }));
+            for (const p of meta.participants || []) {
+              const pName = p.notify || p.name;
+              if (p.id && pName) session.contactNames.set(p.id, pName);
+            }
+            updateGroupMeta(session, jid, {
+              description: meta.desc || "",
+              owner: meta.owner || meta.subjectOwner || null,
+              participants,
+            });
+          }
+        } catch (e) {
+          pushLog("ERROR", `[${username}] groupMetadata(${jid}): ${e.message}`);
+        }
       }
     });
 
@@ -603,6 +671,25 @@ webApp.get("/api/chats", (req, res) => {
     return (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" });
   });
   res.json({ chats: list });
+});
+
+webApp.get("/api/chat/:id/metadata", (req, res) => {
+  const { username, session } = getSession(req);
+  if (!username) return res.status(400).json({ error: "Missing ?user= parameter" });
+  if (!session) return res.status(503).json({ error: "Session not found" });
+  const chatId = req.params.id;
+  const chat = session.chatStore.get(chatId);
+  if (!chat) return res.status(404).json({ error: "Chat not found" });
+  res.json({
+    id: chat.id,
+    name: chat.name,
+    isGroup: chat.isGroup,
+    type: chat.type,
+    lastActive: chat.lastActive || null,
+    description: chat.description || null,
+    owner: chat.owner || null,
+    participants: chat.participants || [],
+  });
 });
 
 webApp.get("/api/chat/:id/messages", (req, res) => {
