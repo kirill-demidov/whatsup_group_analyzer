@@ -190,6 +190,20 @@
       <span id="syncFirstLabel">Перед загрузкой запросить синхронизацию с телефоном (больше истории)</span>
     </label>
     <p style="color: var(--muted); font-size: 0.75rem; margin: 0 0 0.5rem;">Если в чате только новые сообщения без старой истории — включи эту опцию и нажми «Анализировать»: с телефона запросится ещё порция сообщений (до ~100 за раз). Повтори для большей глубины.</p>
+    <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem; font-size:0.875rem;">
+      <span id="timePeriodLabel">Период:</span>
+      <select id="timePeriod" style="padding:0.35rem 0.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:0.875rem;">
+        <option value="0">За всё время</option>
+        <option value="1">За сегодня</option>
+        <option value="3">За 3 дня</option>
+        <option value="7">За неделю</option>
+        <option value="14">За 2 недели</option>
+        <option value="30" selected>За месяц</option>
+        <option value="90">За 3 месяца</option>
+        <option value="180">За полгода</option>
+        <option value="365">За год</option>
+      </select>
+    </label>
     <label class="msg-limit-wrap" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem; font-size:0.875rem;">
       <span id="msgLimitLabel" data-i18n="msgLimitLabel">Последние</span>
       <input type="number" id="messageLimit" value="0" min="0" max="15000" style="width:5.5rem; padding:0.35rem 0.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:0.875rem;" />
@@ -669,7 +683,7 @@
         const r = await fetch(API + "/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chatIds, prompt, syncFirst, messageLimit, lang: currentLang }),
+          body: JSON.stringify({ chatIds, prompt, syncFirst, messageLimit, timePeriod: parseInt(document.getElementById("timePeriod").value, 10) || 0, lang: currentLang }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {

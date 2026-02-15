@@ -1,6 +1,7 @@
 """FastAPI: webhook для моста, веб-приложение (подключение моста, чаты, анализ через Gemini)."""
 
 import json
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -364,6 +365,7 @@ class AnalyzePayload(BaseModel):
     prompt: str = ""
     syncFirst: bool = False  # перед загрузкой запросить синхронизацию истории с телефоном
     messageLimit: int = 0  # 0 = авто (Gemini определит по промпту)
+    timePeriod: int = 0  # дней назад (0 = без фильтра по времени)
     lang: str = ""  # язык ответа: ru/en/he (пустой = язык промпта)
 
 
@@ -384,13 +386,20 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
     from src.gcs_client import load_chat_messages
 
     # Определяем эффективный лимит сообщений
-    if payload.messageLimit > 0:
+    use_time_filter = payload.timePeriod > 0
+    if use_time_filter:
+        # При фильтре по времени запрашиваем максимум, лимит применим после фильтрации
+        effective_limit = 15000
+        fetch_limit = 15000
+        cutoff_ts = time.time() - payload.timePeriod * 86400
+        logger.info("Фильтр по времени: %s дней (cutoff=%s)", payload.timePeriod, cutoff_ts)
+    elif payload.messageLimit > 0:
         effective_limit = min(payload.messageLimit, 15000)
+        fetch_limit = min(effective_limit * 2, 15000)
     else:
         effective_limit = estimate_message_limit(payload.prompt.strip())
+        fetch_limit = min(effective_limit * 2, 15000)
     logger.info("Лимит сообщений: %s (запрошено: %s)", effective_limit, payload.messageLimit)
-    # Запрашиваем у моста с запасом (x2), но не больше 15000
-    fetch_limit = min(effective_limit * 2, 15000)
 
     parts = []
     all_timestamps: list[float] = []
@@ -412,9 +421,14 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
             messages = body.get("messages", [])
         else:
             logger.info("Чат %s: загружено %s сообщений из GCS", cid[:24], len(messages))
-        # Обрезаем до effective_limit последних сообщений (мост возвращает хронологически)
-        if len(messages) > effective_limit:
-            messages = messages[-effective_limit:]
+        # Фильтр по временному промежутку
+        if use_time_filter:
+            messages = [m for m in messages if m.get("timestamp", 0) >= cutoff_ts]
+            logger.info("Чат %s: %s сообщений после фильтра по времени", cid[:24], len(messages))
+        # Обрезаем до effective_limit (или messageLimit, если задан вместе с timePeriod)
+        msg_cap = min(payload.messageLimit, 15000) if payload.messageLimit > 0 else effective_limit
+        if len(messages) > msg_cap:
+            messages = messages[-msg_cap:]
         parts.append(f"\n=== Чат id: {cid} ===\n")
         for m in reversed(messages):  # хронологический порядок
             ts = m.get("timestamp")
