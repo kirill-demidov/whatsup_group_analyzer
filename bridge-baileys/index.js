@@ -248,8 +248,18 @@ function loadSessionFromDisk(session, username) {
     }
   } catch (e) { pushLog("WARN", `[${username}] Ошибка загрузки contacts.json: ${e.message}`); }
 
+  // Обогащаем имена direct чатов из contactNames
+  let enriched = 0;
+  for (const [jid, chat] of session.chatStore) {
+    if (!chat.isGroup && (!chat.name || chat.name === "—")) {
+      const name = session.contactNames.get(jid);
+      if (name) { chat.name = name; enriched++; }
+    }
+  }
+  if (enriched > 0) session.dirty = true;
+
   const totalMsg = Array.from(session.messagesByChat.values()).reduce((s, a) => s + a.length, 0);
-  pushLog("INFO", `[${username}] Loaded ${session.chatStore.size} chats, ${totalMsg} messages, ${session.contactNames.size} contacts from disk`);
+  pushLog("INFO", `[${username}] Loaded ${session.chatStore.size} chats, ${totalMsg} messages, ${session.contactNames.size} contacts from disk (enriched ${enriched} chat names)`);
 }
 
 // ===================== startSock(username) =====================
