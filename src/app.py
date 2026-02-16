@@ -421,14 +421,27 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
             messages = body.get("messages", [])
         else:
             logger.info("Чат %s: загружено %s сообщений из GCS", cid[:24], len(messages))
-        # Фильтр по временному промежутку
+        # Время сообщения: timestamp (сек) или разбор date — чтобы фильтр и сортировка работали одинаково
+        def _msg_ts(m: dict) -> float:
+            t = m.get("timestamp")
+            if t is not None and isinstance(t, (int, float)):
+                return float(t)  # мост может отдавать в секундах
+            if m.get("date"):
+                try:
+                    dt = datetime.fromisoformat(str(m["date"]).replace("Z", "+00:00")[:19])
+                    return dt.timestamp()
+                except (ValueError, TypeError):
+                    pass
+            return 0.0
+        # Фильтр по периоду: учитываем и timestamp, и date (раньше только timestamp — сообщения только с date отбрасывались)
         if use_time_filter:
-            messages = [m for m in messages if m.get("timestamp", 0) >= cutoff_ts]
+            messages = [m for m in messages if _msg_ts(m) >= cutoff_ts]
             logger.info("Чат %s: %s сообщений после фильтра по времени", cid[:24], len(messages))
+        messages = sorted(messages, key=_msg_ts)
         # Обрезаем до effective_limit (или messageLimit, если задан вместе с timePeriod)
         msg_cap = min(payload.messageLimit, 15000) if payload.messageLimit > 0 else effective_limit
         if len(messages) > msg_cap:
-            messages = messages[-msg_cap:]
+            messages = messages[-msg_cap:]  # последние N по времени (самые новые)
         parts.append(f"\n=== Чат id: {cid} ===\n")
         for m in reversed(messages):  # хронологический порядок
             ts = m.get("timestamp")
@@ -453,10 +466,21 @@ def api_analyze(payload: AnalyzePayload, request: fastapi.Request, user: Current
     if not context_text.strip():
         raise fastapi.HTTPException(400, "No messages in selected chats")
     if total_loaded == 0:
-        # Мост вернул чаты, но без ни одного сообщения с текстом (или пустой список)
+        # Мост вернул чаты, но без ни одного сообщения с текстом (или пустой список / все отфильтрованы по времени)
+        time_hint = ""
+        if use_time_filter:
+            cutoff_date = datetime.fromtimestamp(cutoff_ts).strftime("%d.%m.%Y %H:%M")
+            time_hint = (
+                "• Выбран период «За {} дней» — в анализ попадают только сообщения начиная с {} (по времени сервера). "
+                "В выбранных чатах за этот отрезок не оказалось сообщений с текстом. Попробуйте «За всё время» или увеличьте период.\n"
+            ).format(payload.timePeriod, cutoff_date)
         return {
             "result": "По выбранным чатам не загружено ни одного сообщения.\n\n"
-            "Возможные причины: история по этому чату ещё не подгружена в мост (при Baileys дождитесь окончания History Sync после подключения или откройте чат на телефоне); либо мост отдал пустой список. Попробуйте включить «Перед загрузкой запросить синхронизацию с телефоном» и нажать «Анализировать» снова через 10–20 секунд.",
+            "Возможные причины:\n"
+            + time_hint
+            + "• История по этому чату ещё не подгружена в мост. При Baileys после подключения дождитесь окончания History Sync (1–2 мин) или откройте нужный чат в WhatsApp на телефоне.\n"
+            "• Если в списке у чата отображается 0 сообщений — опция «Перед загрузкой запросить синхронизацию с телефоном» не поможет (ей нужен хотя бы один сообщение в мосте). Сначала откройте чат на телефоне, подождите минуту, нажмите «Обновить список» и затем снова «Анализировать».\n"
+            "• Либо мост отдал пустой список — проверьте логи моста и статистику загрузки истории (ссылка «статистика (JSON)» на странице).",
             "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0, "in_free_tier": True},
         }
 
